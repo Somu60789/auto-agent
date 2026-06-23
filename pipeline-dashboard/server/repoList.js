@@ -58,3 +58,44 @@ export async function scanPipelineRepos(epPipelinesPath) {
   }
   return [...byFullName.values()];
 }
+
+function parseOriginFromGitConfig(configText) {
+  const lines = configText.split('\n');
+  let inOrigin = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('[remote ')) {
+      inOrigin = trimmed.includes('"origin"');
+      continue;
+    }
+    if (inOrigin && trimmed.startsWith('url')) {
+      const eq = trimmed.indexOf('=');
+      if (eq !== -1) return trimmed.slice(eq + 1).trim();
+    }
+  }
+  return null;
+}
+
+export async function scanLocalRepos(tmlReposPath) {
+  let entries;
+  try {
+    entries = await fs.readdir(tmlReposPath, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const byFullName = new Map();
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const gitConfigPath = path.join(tmlReposPath, entry.name, '.git', 'config');
+    let configText;
+    try {
+      configText = await fs.readFile(gitConfigPath, 'utf8');
+    } catch {
+      continue;
+    }
+    const originUrl = parseOriginFromGitConfig(configText);
+    const parsed = parseRepoUrl((originUrl || '') + ' ');
+    if (parsed) byFullName.set(parsed.fullName, parsed);
+  }
+  return [...byFullName.values()];
+}

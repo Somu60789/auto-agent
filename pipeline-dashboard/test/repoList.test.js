@@ -3,9 +3,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseRepoUrl } from '../server/repoList.js';
 import { scanPipelineRepos } from '../server/repoList.js';
+import { scanLocalRepos } from '../server/repoList.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE_EP = path.join(__dirname, 'fixtures', 'ep-pipelines');
+const FIXTURE_TML = path.join(__dirname, 'fixtures', 'TML_Repos');
 
 describe('parseRepoUrl', () => {
   it('parses an https .git url', () => {
@@ -54,5 +56,20 @@ describe('scanPipelineRepos', () => {
   it('returns empty array when the directory does not exist', async () => {
     const repos = await scanPipelineRepos('/no/such/path');
     expect(repos).toEqual([]);
+  });
+});
+
+describe('scanLocalRepos', () => {
+  it('lists immediate subdirs that are git repos, keyed by origin remote', async () => {
+    const repos = await scanLocalRepos(FIXTURE_TML);
+    const names = repos.map((r) => r.fullName).sort();
+    expect(names).toEqual([
+      'tmlconnected/ep-home-ui',
+      'tmlconnected/ep-issue-report',
+    ]);
+  });
+
+  it('returns empty array when the directory does not exist', async () => {
+    expect(await scanLocalRepos('/no/such/path')).toEqual([]);
   });
 });
