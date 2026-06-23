@@ -69,6 +69,32 @@ describe('enrichRepo', () => {
     expect(result.latestBuild.status).toBe('running');
   });
 
+  it('detects a test directory and parses committed coverage summary', async () => {
+    const summary = Buffer.from(
+      JSON.stringify({ total: { lines: { pct: 87.5 } } })
+    ).toString('base64');
+    const client = fakeClient({
+      '/repos/tmlconnected/ep-home-ui/contents/test': { status: 200, data: [{ name: 'a.test.js' }] },
+      '/repos/tmlconnected/ep-home-ui/contents/coverage/coverage-summary.json': {
+        status: 200,
+        data: { content: summary },
+      },
+      '/repos/tmlconnected/ep-home-ui/actions/runs?per_page=1': { status: 200, data: { workflow_runs: [] } },
+    });
+    const result = await enrichRepo(client, base);
+    expect(result.tests).toBe(true);
+    expect(result.coverage).toBe(87.5);
+  });
+
+  it('reports tests false and coverage null when absent', async () => {
+    const client = fakeClient({
+      '/repos/tmlconnected/ep-home-ui/actions/runs?per_page=1': { status: 200, data: { workflow_runs: [] } },
+    });
+    const result = await enrichRepo(client, base);
+    expect(result.tests).toBe(false);
+    expect(result.coverage).toBeNull();
+  });
+
   it('falls back to docker-compose.yml for the dockerfile flag', async () => {
     const client = fakeClient({
       '/repos/tmlconnected/ep-home-ui/contents/docker-compose.yml': { status: 200, data: { name: 'docker-compose.yml' } },
@@ -103,7 +129,9 @@ describe('enrichAll', () => {
     }));
     const results = await enrichAll(client, repos, { concurrency: 4 });
     expect(results).toHaveLength(20);
-    expect(maxActive).toBeLessThanOrEqual(4 * 4);
+    // 4 workers, each enrichRepo fires up to 9 parallel gets
+    // (workflows, Dockerfile, docker-compose, runs, 4 test dirs, coverage).
+    expect(maxActive).toBeLessThanOrEqual(4 * 9);
     expect(results.every((r) => 'githubActions' in r)).toBe(true);
   });
 });

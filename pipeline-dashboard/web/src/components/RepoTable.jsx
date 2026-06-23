@@ -61,6 +61,7 @@ export default function RepoTable({ repos }) {
       <Table size="small" stickyHeader>
         <TableHead>
           <TableRow>
+            <TableCell>#</TableCell>
             <TableCell sortDirection={orderBy === 'fullName' ? order : false}>
               <TableSortLabel
                 active={orderBy === 'fullName'}
@@ -81,6 +82,15 @@ export default function RepoTable({ repos }) {
                 </TableSortLabel>
               </TableCell>
             ))}
+            <TableCell align="center">
+              <TableSortLabel
+                active={orderBy === 'tests'}
+                direction={orderBy === 'tests' ? order : 'asc'}
+                onClick={() => handleSort('tests')}
+              >
+                Tests / Coverage
+              </TableSortLabel>
+            </TableCell>
             <TableCell>
               <TableSortLabel
                 active={orderBy === 'latestBuild'}
@@ -94,14 +104,21 @@ export default function RepoTable({ repos }) {
           </TableRow>
         </TableHead>
         <TableBody>
-          {sorted.map((repo) => (
+          {sorted.map((repo, i) => (
             <TableRow key={repo.fullName} hover>
+              <TableCell>{i + 1}</TableCell>
               <TableCell>{repo.name}</TableCell>
               {BOOL_COLUMNS.map((col) => (
                 <TableCell key={col.key} align="center">
                   <BoolCell value={repo[col.key]} />
                 </TableCell>
               ))}
+              <TableCell align="center">
+                <BoolCell value={repo.tests} />
+                {repo.tests && repo.coverage != null && (
+                  <span style={{ marginLeft: 4 }}>{repo.coverage}%</span>
+                )}
+              </TableCell>
               <TableCell>
                 <StatusChip
                   status={repo.latestBuild?.status || 'unknown'}
