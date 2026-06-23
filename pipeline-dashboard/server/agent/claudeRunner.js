@@ -45,6 +45,16 @@ export function runTurn(
     const state = { sessionId: sessionId || null, resultError: null };
     let buf = '';
     let stderr = '';
+    let settled = false;
+
+    // A child can emit both 'error' and 'close'; settle (and emit the terminal
+    // result event) exactly once so consumers never see two terminal events.
+    function settle(error) {
+      if (settled) return;
+      settled = true;
+      onEvent({ type: 'result', error });
+      resolve({ sessionId: state.sessionId, error });
+    }
 
     child.stdout.on('data', (d) => {
       buf += d.toString();
@@ -59,17 +69,14 @@ export function runTurn(
       stderr += d.toString();
     });
     child.on('error', (err) => {
-      const error = err.message || 'claude process error';
-      onEvent({ type: 'result', error });
-      resolve({ sessionId: state.sessionId, error });
+      settle(err.message || 'claude process error');
     });
     child.on('close', (code) => {
       if (buf.trim()) emitFromLine(buf.trim(), onEvent, state);
       let error = null;
       if (code !== 0) error = stderr.trim() || `claude exited with code ${code}`;
       else if (state.resultError) error = state.resultError;
-      onEvent({ type: 'result', error });
-      resolve({ sessionId: state.sessionId, error });
+      settle(error);
     });
   });
 }

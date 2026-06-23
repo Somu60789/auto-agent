@@ -70,4 +70,26 @@ describe('runTurn', () => {
     expect(res.error).toMatch(/boom/);
     expect(events.at(-1)).toEqual({ type: 'result', error: res.error });
   });
+
+  it('emits exactly one terminal result event when error and close both fire', async () => {
+    const events = [];
+    // A real child can emit 'error' then still emit 'close'; assert we settle once.
+    const spawnImpl = () => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = () => {};
+      queueMicrotask(() => {
+        child.emit('error', new Error('spawn ENOENT'));
+        child.emit('close', 1);
+      });
+      return child;
+    };
+    const res = await runTurn(
+      { cwd: '/repo', prompt: 'x', sessionId: null, claudeBin: 'claude' },
+      { spawnImpl, onEvent: (e) => events.push(e) }
+    );
+    expect(res.error).toMatch(/ENOENT/);
+    expect(events.filter((e) => e.type === 'result')).toHaveLength(1);
+  });
 });
