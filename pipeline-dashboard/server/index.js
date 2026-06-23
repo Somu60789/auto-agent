@@ -1,12 +1,20 @@
 import express from 'express';
 import { loadConfig } from './config.js';
 import { createGithubClient } from './githubClient.js';
+import { createCodecovClient } from './codecovClient.js';
 import { buildRepoList } from './repoList.js';
 import { enrichAll } from './enrich.js';
+import { createAgentRouter } from './agent/routes.js';
+import { createSessionStore } from './agent/session.js';
+import { runTurn } from './agent/claudeRunner.js';
+import { resolveRepo, listRepos } from './agent/workspace.js';
+import { publish } from './agent/publish.js';
 
-export function createApp({ config, client, buildRepos }) {
+export function createApp({ config, client, buildRepos, agentRouter }) {
   const app = express();
   app.use(express.json());
+
+  if (agentRouter) app.use('/api/agent', agentRouter);
 
   let cache = null;
   let cacheTime = 0;
@@ -56,17 +64,26 @@ export function createApp({ config, client, buildRepos }) {
   return app;
 }
 
-export function startServer() {
+export async function startServer() {
   const config = loadConfig();
   const client = createGithubClient({ token: config.githubToken });
+  const codecov = createCodecovClient({ token: config.codecovToken });
+  const runner = {
+    runTurn: (turn, opts) => runTurn({ ...turn, claudeBin: config.claudeBin }, opts),
+  };
+  const store = createSessionStore({ stateDir: config.agentStateDir, runner });
+  await store.load();
+  const agentRouter = createAgentRouter({
+    config, store, client, resolveRepo, listRepos, publish,
+  });
   const buildRepos = async () => {
     const repos = await buildRepoList({
       epPipelinesPath: config.epPipelinesPath,
       tmlReposPath: config.tmlReposPath,
     });
-    return enrichAll(client, repos, { concurrency: 8 });
+    return enrichAll(client, repos, { concurrency: 8, codecov });
   };
-  const app = createApp({ config, client, buildRepos });
+  const app = createApp({ config, client, buildRepos, agentRouter });
   app.listen(config.port, () => {
     // eslint-disable-next-line no-console
     console.log(`Pipeline dashboard API listening on http://localhost:${config.port}`);

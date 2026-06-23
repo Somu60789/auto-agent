@@ -4,11 +4,15 @@ import AppBar from '@mui/material/AppBar';
 import Alert from '@mui/material/Alert';
 import LinearProgress from '@mui/material/LinearProgress';
 import Box from '@mui/material/Box';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
 import { fetchRepos, refreshRepos } from './api.js';
 import RepoTable from './components/RepoTable.jsx';
 import DashboardToolbar from './components/DashboardToolbar.jsx';
+import CoWorker from './pages/CoWorker.jsx';
 
 export default function App() {
+  const [tab, setTab] = useState('dashboard');
   const [data, setData] = useState({ repos: [], generatedAt: null, rateLimitRemaining: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -40,25 +44,37 @@ export default function App() {
   return (
     <Box>
       <AppBar position="static" color="default" elevation={1}>
-        <DashboardToolbar
-          total={data.repos.length}
-          query={query}
-          onQueryChange={setQuery}
-          onRefresh={() => load(true)}
-          loading={loading}
-          generatedAt={data.generatedAt}
-          rateLimitRemaining={data.rateLimitRemaining}
-        />
-      </AppBar>
-      {loading && <LinearProgress />}
-      <Container maxWidth={false} sx={{ py: 2 }}>
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
+        <Tabs value={tab} onChange={(_, v) => setTab(v)}>
+          <Tab label="Dashboard" value="dashboard" />
+          <Tab label="Co-Worker" value="coworker" />
+        </Tabs>
+        {tab === 'dashboard' && (
+          <DashboardToolbar
+            total={data.repos.length}
+            query={query}
+            onQueryChange={setQuery}
+            onRefresh={() => load(true)}
+            loading={loading}
+            generatedAt={data.generatedAt}
+            rateLimitRemaining={data.rateLimitRemaining}
+          />
         )}
-        <RepoTable repos={filtered} />
-      </Container>
+      </AppBar>
+      {tab === 'coworker' ? (
+        <CoWorker />
+      ) : (
+        <>
+          {loading && <LinearProgress />}
+          <Container maxWidth={false} sx={{ py: 2 }}>
+            {error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
+            <RepoTable repos={filtered} />
+          </Container>
+        </>
+      )}
     </Box>
   );
 }

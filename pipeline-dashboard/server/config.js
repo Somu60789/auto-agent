@@ -8,10 +8,19 @@ export function loadConfig(env = process.env) {
   const tmlReposPath = env.TML_REPOS_PATH || '/home/somasekhar/Desktop/TML_Repos';
   const epPipelinesPath =
     env.EP_PIPELINES_PATH || path.join(tmlReposPath, 'ep-pipelines');
+  const allReposPath =
+    env.ALL_REPOS_PATH || path.join(path.dirname(tmlReposPath), 'ALL_Repos');
+  const agentStateDir = env.AGENT_STATE_DIR || path.join(allReposPath, '.co-worker');
+  const claudeBin = env.CLAUDE_BIN || 'claude';
   return {
     githubToken,
     tmlReposPath,
     epPipelinesPath,
+    allReposPath,
+    agentStateDir,
+    claudeBin,
+    // Optional Codecov token — without it, only public repos return coverage.
+    codecovToken: env.CODECOV_TOKEN || null,
     port: parseNumber(env.PORT, 4000),
     cacheTtlSeconds: parseNumber(env.CACHE_TTL_SECONDS, 300),
   };
