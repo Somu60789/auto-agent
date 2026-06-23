@@ -28,6 +28,13 @@ export async function resolveRepo(
   { cloneImpl = defaultClone } = {}
 ) {
   const trimmed = String(ref).trim();
+  // A bare name (no slash) is an already-cloned repo picked from listRepos —
+  // resolve it directly to its dir instead of treating it as a GitHub ref.
+  if (/^[^/\s]+$/.test(trimmed)) {
+    const dir = path.join(allReposPath, trimmed);
+    if (await exists(path.join(dir, '.git'))) return dir;
+    throw new Error(`No cloned repo named "${trimmed}" in ALL_Repos`);
+  }
   // parseRepoUrl only recognizes github.com URLs, so promote a bare owner/name
   // reference to a full URL before parsing.
   const candidate = /^[^/\s]+\/[^/\s]+$/.test(trimmed)

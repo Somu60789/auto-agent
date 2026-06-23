@@ -47,6 +47,24 @@ describe('resolveRepo', () => {
       resolveRepo({ allReposPath: root, token: 't', owner: 'default' }, 'not a repo', {})
     ).rejects.toThrow(/repo/i);
   });
+
+  it('resolves a bare name to an existing clone without cloning', async () => {
+    await fs.mkdir(path.join(root, 'smoke-test', '.git'), { recursive: true });
+    const calls = [];
+    const dir = await resolveRepo(
+      { allReposPath: root, token: 't', owner: 'default' },
+      'smoke-test',
+      { cloneImpl: async (...a) => calls.push(a) }
+    );
+    expect(dir).toBe(path.join(root, 'smoke-test'));
+    expect(calls).toHaveLength(0);
+  });
+
+  it('throws for a bare name that is not cloned', async () => {
+    await expect(
+      resolveRepo({ allReposPath: root, token: 't', owner: 'default' }, 'missing', {})
+    ).rejects.toThrow(/ALL_Repos/);
+  });
 });
 
 describe('listRepos', () => {
