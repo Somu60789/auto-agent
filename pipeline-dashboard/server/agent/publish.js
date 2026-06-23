@@ -18,7 +18,10 @@ export async function publish(
   { git = (args) => defaultGit(args, cwd), githubClient }
 ) {
   const head = branch || `bot/${slugify(title)}-${Date.now()}`;
-  if (head === 'main' || head === 'master') {
+  // Safety gate: never push to a protected branch. Normalize first so case,
+  // surrounding whitespace, or a refs/heads/ prefix can't slip past the check.
+  const normalized = head.trim().toLowerCase().replace(/^refs\/heads\//, '');
+  if (normalized === 'main' || normalized === 'master') {
     return { prUrl: null, error: 'Refusing to push to protected branch main/master' };
   }
   try {

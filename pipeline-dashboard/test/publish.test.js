@@ -53,4 +53,19 @@ describe('publish', () => {
     expect(git.cmds.join('|')).not.toMatch(/push/);
     expect(client.calls).toHaveLength(0);
   });
+
+  it.each(['Main', 'MASTER', ' main ', 'refs/heads/main'])(
+    'refuses protected branch variant %j (no push, no PR)',
+    async (branch) => {
+      const git = fakeGit();
+      const client = fakeClient();
+      const res = await publish(
+        { cwd: '/repo/r', repo, title: 't', body: '', branch },
+        { git, githubClient: client }
+      );
+      expect(res.error).toMatch(/protected/);
+      expect(git.cmds.join('|')).not.toMatch(/push/);
+      expect(client.calls).toHaveLength(0);
+    }
+  );
 });
