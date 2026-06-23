@@ -12,7 +12,15 @@ export function loadConfig(env = process.env) {
     githubToken,
     tmlReposPath,
     epPipelinesPath,
-    port: Number(env.PORT) || 4000,
-    cacheTtlSeconds: Number(env.CACHE_TTL_SECONDS) || 300,
+    port: parseNumber(env.PORT, 4000),
+    cacheTtlSeconds: parseNumber(env.CACHE_TTL_SECONDS, 300),
   };
+}
+
+// Parse a numeric env var, falling back to the default only when unset/blank/NaN.
+// Unlike `Number(x) || default`, this preserves a deliberate 0 (e.g. CACHE_TTL_SECONDS=0).
+function parseNumber(value, fallback) {
+  if (value == null || value === '') return fallback;
+  const n = Number(value);
+  return Number.isNaN(n) ? fallback : n;
 }

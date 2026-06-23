@@ -24,6 +24,26 @@ describe('loadConfig', () => {
     expect(cfg.cacheTtlSeconds).toBe(60);
   });
 
+  it('preserves an explicit 0 for CACHE_TTL_SECONDS (always-refresh)', () => {
+    const cfg = loadConfig({
+      GITHUB_TOKEN: 'tok',
+      TML_REPOS_PATH: '/repos',
+      CACHE_TTL_SECONDS: '0',
+    });
+    expect(cfg.cacheTtlSeconds).toBe(0);
+  });
+
+  it('falls back to defaults for non-numeric PORT/CACHE_TTL_SECONDS', () => {
+    const cfg = loadConfig({
+      GITHUB_TOKEN: 'tok',
+      TML_REPOS_PATH: '/repos',
+      PORT: 'abc',
+      CACHE_TTL_SECONDS: '',
+    });
+    expect(cfg.port).toBe(4000);
+    expect(cfg.cacheTtlSeconds).toBe(300);
+  });
+
   it('throws when GITHUB_TOKEN is missing', () => {
     expect(() => loadConfig({ TML_REPOS_PATH: '/repos' })).toThrow(/GITHUB_TOKEN/);
   });
