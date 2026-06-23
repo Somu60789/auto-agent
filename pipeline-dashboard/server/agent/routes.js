@@ -3,7 +3,9 @@ import { EventEmitter } from 'node:events';
 
 export function createAgentRouter({ config, store, client, resolveRepo, listRepos, publish }) {
   const router = express.Router();
-  const emitters = new Map(); // sessionId -> EventEmitter
+  // sessionId -> EventEmitter. ponytail: never evicted; bounded by session count,
+  // fine single-user. Add eviction when a session delete/archive route lands.
+  const emitters = new Map();
 
   function emitterFor(id) {
     if (!emitters.has(id)) emitters.set(id, new EventEmitter());
@@ -45,6 +47,8 @@ export function createAgentRouter({ config, store, client, resolveRepo, listRepo
     if (!session) return res.status(404).end();
     res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.flushHeaders();
+    // Flush the backlog then subscribe in the same synchronous tick — no await may
+    // sit between these two, or a turn event fired in the gap would be lost.
     for (const e of session.transcript) res.write(`data: ${JSON.stringify(e)}\n\n`);
     const em = emitterFor(req.params.id);
     const onEvent = (e) => res.write(`data: ${JSON.stringify(e)}\n\n`);
@@ -53,6 +57,7 @@ export function createAgentRouter({ config, store, client, resolveRepo, listRepo
   });
 
   router.post('/:id/message', async (req, res) => {
+    if (!store.get(req.params.id)) return res.status(404).json({ error: 'unknown session' });
     try {
       const em = emitterFor(req.params.id);
       const result = await store.sendMessage(req.params.id, req.body.prompt, {

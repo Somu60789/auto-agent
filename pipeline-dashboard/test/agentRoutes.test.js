@@ -30,12 +30,12 @@ async function call(app, method, path, body) {
   return { status: res.status, data };
 }
 
-function buildApp() {
+function buildApp(store = makeStore()) {
   const app = express();
   app.use(express.json());
   app.use('/api/agent', createAgentRouter({
     config: { allReposPath: '/all', githubToken: 't' },
-    store: makeStore(),
+    store,
     client: { post: async () => ({ ok: true, data: { html_url: 'u' } }) },
     resolveRepo: async () => '/repo/r',
     listRepos: async () => ['r'],
@@ -61,5 +61,11 @@ describe('agent routes', () => {
     const { status, data } = await call(buildApp(), 'POST', '/api/agent/s1/publish', { title: 't' });
     expect(status).toBe(200);
     expect(data.prUrl).toBe('https://x/pull/1');
+  });
+
+  it('returns 404 when messaging an unknown session', async () => {
+    const emptyStore = { ...makeStore(), get: () => null };
+    const { status } = await call(buildApp(emptyStore), 'POST', '/api/agent/nope/message', { prompt: 'hi' });
+    expect(status).toBe(404);
   });
 });
