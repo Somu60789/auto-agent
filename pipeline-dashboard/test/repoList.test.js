@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
+import os from 'node:os';
+import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { parseRepoUrl } from '../server/repoList.js';
 import { scanPipelineRepos } from '../server/repoList.js';
@@ -8,7 +10,31 @@ import { buildRepoList } from '../server/repoList.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE_EP = path.join(__dirname, 'fixtures', 'ep-pipelines');
-const FIXTURE_TML = path.join(__dirname, 'fixtures', 'TML_Repos');
+
+let tmpRoot;
+
+beforeAll(async () => {
+  tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'tml-repos-'));
+  await fs.mkdir(path.join(tmpRoot, 'ep-home-ui', '.git'), { recursive: true });
+  await fs.writeFile(
+    path.join(tmpRoot, 'ep-home-ui', '.git', 'config'),
+    '[remote "origin"]\n\turl = https://github.com/tmlconnected/ep-home-ui.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n'
+  );
+  await fs.mkdir(path.join(tmpRoot, 'ep-issue-report', '.git'), { recursive: true });
+  await fs.writeFile(
+    path.join(tmpRoot, 'ep-issue-report', '.git', 'config'),
+    '[remote "origin"]\n\turl = git@github.com:tmlconnected/ep-issue-report.git\n'
+  );
+  await fs.mkdir(path.join(tmpRoot, 'not-a-repo'), { recursive: true });
+  await fs.writeFile(
+    path.join(tmpRoot, 'not-a-repo', 'README.md'),
+    'just a folder, no .git\n'
+  );
+});
+
+afterAll(async () => {
+  await fs.rm(tmpRoot, { recursive: true, force: true });
+});
 
 describe('parseRepoUrl', () => {
   it('parses an https .git url', () => {
@@ -62,7 +88,7 @@ describe('scanPipelineRepos', () => {
 
 describe('scanLocalRepos', () => {
   it('lists immediate subdirs that are git repos, keyed by origin remote', async () => {
-    const repos = await scanLocalRepos(FIXTURE_TML);
+    const repos = await scanLocalRepos(tmpRoot);
     const names = repos.map((r) => r.fullName).sort();
     expect(names).toEqual([
       'tmlconnected/ep-home-ui',
@@ -79,7 +105,7 @@ describe('buildRepoList', () => {
   it('unions pipeline + local repos with membership flags', async () => {
     const repos = await buildRepoList({
       epPipelinesPath: FIXTURE_EP,
-      tmlReposPath: FIXTURE_TML,
+      tmlReposPath: tmpRoot,
     });
     const byName = Object.fromEntries(repos.map((r) => [r.fullName, r]));
 
@@ -96,7 +122,7 @@ describe('buildRepoList', () => {
   it('sorts results by fullName', async () => {
     const repos = await buildRepoList({
       epPipelinesPath: FIXTURE_EP,
-      tmlReposPath: FIXTURE_TML,
+      tmlReposPath: tmpRoot,
     });
     const names = repos.map((r) => r.fullName);
     expect(names).toEqual([...names].sort());
