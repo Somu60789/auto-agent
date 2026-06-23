@@ -36,14 +36,22 @@ export default function CoWorker() {
   function openStream(id) {
     if (esRef.current) esRef.current.close();
     setEvents([]);
-    esRef.current = streamSession(id, (e) => setEvents((prev) => [...prev, e]));
+    esRef.current = streamSession(
+      id,
+      (e) => setEvents((prev) => [...prev, e]),
+      () => setError('Live connection lost — reload to reconnect.')
+    );
   }
 
   async function start() {
     setError(null);
     setPrUrl(null);
+    const refs = repoInput.split(',').map((s) => s.trim()).filter(Boolean);
+    if (!refs.length) {
+      setError('Enter at least one repo.');
+      return;
+    }
     try {
-      const refs = repoInput.split(',').map((s) => s.trim()).filter(Boolean);
       const s = await createSession(refs, refs.join(', '));
       setSession(s);
       openStream(s.id);
@@ -65,7 +73,8 @@ export default function CoWorker() {
     setBusy(true);
     setError(null);
     try {
-      await sendMessage(session.id, prompt);
+      const res = await sendMessage(session.id, prompt);
+      if (res?.error) setError(res.error);
       setPrompt('');
     } catch (err) {
       setError(err.message);
@@ -130,6 +139,11 @@ export default function CoWorker() {
             </Button>
           </Stack>
           <Paper variant="outlined" sx={{ p: 2, mb: 2, maxHeight: 400, overflow: 'auto', fontFamily: 'monospace', fontSize: 13, whiteSpace: 'pre-wrap' }}>
+            {events.length === 0 && (
+              <Box sx={{ color: 'text.secondary' }}>
+                No messages yet — the conversation continues on your next message.
+              </Box>
+            )}
             {events.map((e, i) => (
               <Box key={i} sx={{ color: e.type === 'tool' ? 'primary.main' : e.error ? 'error.main' : 'text.primary' }}>
                 {e.type === 'user' && <strong>&gt; {e.text}</strong>}

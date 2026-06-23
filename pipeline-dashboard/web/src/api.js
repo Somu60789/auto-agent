@@ -36,8 +36,10 @@ export async function publishSession(id, title, body) {
 }
 
 // Subscribe to a session's SSE stream. Returns the EventSource so the caller can close it.
-export function streamSession(id, onEvent) {
+// onError fires if the connection drops (EventSource auto-reconnects, but the UI should know).
+export function streamSession(id, onEvent, onError) {
   const es = new EventSource(`/api/agent/${id}/stream`);
   es.onmessage = (e) => onEvent(JSON.parse(e.data));
+  es.onerror = () => onError?.();
   return es;
 }
