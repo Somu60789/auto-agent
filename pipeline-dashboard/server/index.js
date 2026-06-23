@@ -1,6 +1,7 @@
 import express from 'express';
 import { loadConfig } from './config.js';
 import { createGithubClient } from './githubClient.js';
+import { createCodecovClient } from './codecovClient.js';
 import { buildRepoList } from './repoList.js';
 import { enrichAll } from './enrich.js';
 
@@ -59,12 +60,13 @@ export function createApp({ config, client, buildRepos }) {
 export function startServer() {
   const config = loadConfig();
   const client = createGithubClient({ token: config.githubToken });
+  const codecov = createCodecovClient({ token: config.codecovToken });
   const buildRepos = async () => {
     const repos = await buildRepoList({
       epPipelinesPath: config.epPipelinesPath,
       tmlReposPath: config.tmlReposPath,
     });
-    return enrichAll(client, repos, { concurrency: 8 });
+    return enrichAll(client, repos, { concurrency: 8, codecov });
   };
   const app = createApp({ config, client, buildRepos });
   app.listen(config.port, () => {

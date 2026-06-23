@@ -19,6 +19,7 @@ const BOOL_COLUMNS = [
   { key: 'githubActions', label: 'GH Actions' },
   { key: 'jenkins', label: 'Jenkins' },
   { key: 'dockerfile', label: 'Dockerfile' },
+  { key: 'jira', label: 'Jira / ALM' },
 ];
 
 function BoolCell({ value }) {

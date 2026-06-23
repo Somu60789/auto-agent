@@ -31,32 +31,42 @@ async function detectTests(client, prefix) {
   return checks.some(Boolean);
 }
 
-// Coverage: read a committed Istanbul coverage-summary.json if present and return
-// total line coverage %. Returns null when no real number is available — we never
-// fabricate a coverage figure (the GitHub API can't compute one live).
-async function detectCoverage(client, prefix) {
-  const res = await client.get(`${prefix}/contents/coverage/coverage-summary.json`);
-  if (!res.ok || !res.data?.content) return null;
-  try {
-    const json = JSON.parse(Buffer.from(res.data.content, 'base64').toString('utf8'));
-    const pct = json?.total?.lines?.pct;
-    return typeof pct === 'number' ? pct : null;
-  } catch {
-    return null;
-  }
+// Jira / ALM: config-presence signal (like Jenkins). True if the repo carries a
+// Jira/ALM integration marker file.
+const JIRA_FILES = [
+  '.jira.yml',
+  'jira.yml',
+  '.github/jira.yml',
+  'atlassian-ide-plugin.xml',
+  '.jira',
+];
+async function detectJira(client, prefix) {
+  const checks = await Promise.all(
+    JIRA_FILES.map((f) => pathExists(client, `${prefix}/contents/${f}`))
+  );
+  return checks.some(Boolean);
 }
 
-export async function enrichRepo(client, repo) {
+// Coverage: read the actual line coverage % from Codecov for this repo.
+// Returns null when no Codecov client is configured or the repo isn't on Codecov —
+// we never fabricate a figure (coverage only exists once a suite is run + reported).
+async function detectCoverage(codecov, owner, name) {
+  if (!codecov) return null;
+  return codecov.coverage(owner, name);
+}
+
+export async function enrichRepo(client, repo, { codecov = null } = {}) {
   const { owner, name } = repo;
   const prefix = `/repos/${owner}/${name}`;
   try {
-    const [workflows, dockerfile, dockerCompose, runs, tests, coverage] = await Promise.all([
+    const [workflows, dockerfile, dockerCompose, runs, tests, coverage, jira] = await Promise.all([
       pathExists(client, `${prefix}/contents/.github/workflows`),
       pathExists(client, `${prefix}/contents/Dockerfile`),
       pathExists(client, `${prefix}/contents/docker-compose.yml`),
       client.get(`${prefix}/actions/runs?per_page=1`),
       detectTests(client, prefix),
-      detectCoverage(client, prefix),
+      detectCoverage(codecov, owner, name),
+      detectJira(client, prefix),
     ]);
     return {
       ...repo,
@@ -66,6 +76,7 @@ export async function enrichRepo(client, repo) {
       latestBuild: runs.ok ? mapLatestRun(runs.data) : { status: 'unknown', url: null },
       tests,
       coverage,
+      jira,
       error: null,
     };
   } catch (err) {
@@ -77,19 +88,20 @@ export async function enrichRepo(client, repo) {
       latestBuild: { status: 'unknown', url: null },
       tests: false,
       coverage: null,
+      jira: false,
       error: err.message || 'enrichment failed',
     };
   }
 }
 
-export async function enrichAll(client, repos, { concurrency = 8 } = {}) {
+export async function enrichAll(client, repos, { concurrency = 8, codecov = null } = {}) {
   const results = new Array(repos.length);
   let cursor = 0;
   async function worker() {
     while (cursor < repos.length) {
       const index = cursor;
       cursor += 1;
-      results[index] = await enrichRepo(client, repos[index]);
+      results[index] = await enrichRepo(client, repos[index], { codecov });
     }
   }
   const workers = Array.from(

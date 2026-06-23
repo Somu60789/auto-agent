@@ -69,30 +69,33 @@ describe('enrichRepo', () => {
     expect(result.latestBuild.status).toBe('running');
   });
 
-  it('detects a test directory and parses committed coverage summary', async () => {
-    const summary = Buffer.from(
-      JSON.stringify({ total: { lines: { pct: 87.5 } } })
-    ).toString('base64');
+  it('detects a test directory and reads coverage from Codecov', async () => {
     const client = fakeClient({
       '/repos/tmlconnected/ep-home-ui/contents/test': { status: 200, data: [{ name: 'a.test.js' }] },
-      '/repos/tmlconnected/ep-home-ui/contents/coverage/coverage-summary.json': {
-        status: 200,
-        data: { content: summary },
-      },
       '/repos/tmlconnected/ep-home-ui/actions/runs?per_page=1': { status: 200, data: { workflow_runs: [] } },
     });
-    const result = await enrichRepo(client, base);
+    const codecov = { coverage: async () => 87.5 };
+    const result = await enrichRepo(client, base, { codecov });
     expect(result.tests).toBe(true);
     expect(result.coverage).toBe(87.5);
   });
 
-  it('reports tests false and coverage null when absent', async () => {
+  it('reports tests false and coverage null when absent / no codecov', async () => {
     const client = fakeClient({
       '/repos/tmlconnected/ep-home-ui/actions/runs?per_page=1': { status: 200, data: { workflow_runs: [] } },
     });
     const result = await enrichRepo(client, base);
     expect(result.tests).toBe(false);
     expect(result.coverage).toBeNull();
+  });
+
+  it('detects a Jira/ALM integration file', async () => {
+    const client = fakeClient({
+      '/repos/tmlconnected/ep-home-ui/contents/.jira.yml': { status: 200, data: { name: '.jira.yml' } },
+      '/repos/tmlconnected/ep-home-ui/actions/runs?per_page=1': { status: 200, data: { workflow_runs: [] } },
+    });
+    const result = await enrichRepo(client, base);
+    expect(result.jira).toBe(true);
   });
 
   it('falls back to docker-compose.yml for the dockerfile flag', async () => {
@@ -129,9 +132,9 @@ describe('enrichAll', () => {
     }));
     const results = await enrichAll(client, repos, { concurrency: 4 });
     expect(results).toHaveLength(20);
-    // 4 workers, each enrichRepo fires up to 9 parallel gets
-    // (workflows, Dockerfile, docker-compose, runs, 4 test dirs, coverage).
-    expect(maxActive).toBeLessThanOrEqual(4 * 9);
+    // 4 workers, each enrichRepo fires up to 13 parallel client.gets
+    // (workflows, Dockerfile, docker-compose, runs, 4 test dirs, 5 jira files).
+    expect(maxActive).toBeLessThanOrEqual(4 * 13);
     expect(results.every((r) => 'githubActions' in r)).toBe(true);
   });
 });
