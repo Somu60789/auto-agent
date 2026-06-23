@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseRepoUrl } from '../server/repoList.js';
+import { scanPipelineRepos } from '../server/repoList.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURE_EP = path.join(__dirname, 'fixtures', 'ep-pipelines');
 
 describe('parseRepoUrl', () => {
   it('parses an https .git url', () => {
@@ -31,5 +37,22 @@ describe('parseRepoUrl', () => {
 
   it('returns null for a non-github url', () => {
     expect(parseRepoUrl('https://example.com/foo/bar.git')).toBeNull();
+  });
+});
+
+describe('scanPipelineRepos', () => {
+  it('finds all unique github repos referenced in the ep-pipelines tree', async () => {
+    const repos = await scanPipelineRepos(FIXTURE_EP);
+    const names = repos.map((r) => r.fullName).sort();
+    expect(names).toEqual([
+      'tmlconnected/control-tower-backend',
+      'tmlconnected/ep-home-ui',
+      'tmlconnected/ep-reconciliation',
+    ]);
+  });
+
+  it('returns empty array when the directory does not exist', async () => {
+    const repos = await scanPipelineRepos('/no/such/path');
+    expect(repos).toEqual([]);
   });
 });

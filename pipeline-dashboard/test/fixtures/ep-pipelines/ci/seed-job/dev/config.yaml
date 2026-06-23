@@ -1,0 +1,5 @@
+jobs:
+  - path: "esakha/build/reconciliation"
+    auto_trigger_repo: "https://github.com/tmlconnected/ep-reconciliation.git"
+  - path: "esakha/build/home"
+    auto_trigger_repo: "https://github.com/tmlconnected/ep-home-ui.git"
