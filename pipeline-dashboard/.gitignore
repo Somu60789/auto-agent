@@ -2,3 +2,7 @@ node_modules/
 .env
 web/dist/
 web/node_modules/
+
+# Local demo artifacts
+dashboard-demo.png
+.playwright-mcp/
