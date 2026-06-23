@@ -51,7 +51,29 @@ entry via the GitHub API. The pipeline is a clean chain of pure-ish modules wire
   `startServer` is the real wiring.
 
 Frontend: `web/src/App.jsx` owns all state and calls `api.js` (axios → `/api/repos`,
-`/api/refresh`). Components (`RepoTable`, `DashboardToolbar`, `StatusChip`) are presentational.
+`/api/refresh`). It has two tabs — the dashboard and the Co-Worker page
+(`web/src/pages/CoWorker.jsx`). Components (`RepoTable`, `DashboardToolbar`, `StatusChip`) are
+presentational.
+
+### Co-Worker agent (`server/agent/`)
+
+A second feature mounted under `/api/agent/*` (SSE for live turn output): a multi-turn coding
+agent that wraps the local `claude` CLI to edit repos in `ALL_REPOS_PATH` and ship changes as
+a `bot/` branch + PR. Same DI/never-throw conventions as the dashboard. The chain:
+
+- **`claudeRunner.js`** — spawns `claude -p --output-format stream-json --resume <id?>` for one
+  turn and parses the line-delimited JSON into events. Injectable `spawnImpl`; never throws.
+- **`workspace.js`** — `resolveRepo` maps a repo ref to a working copy under `ALL_REPOS_PATH`
+  (bare name → existing clone; `owner/name`/URL → clone on demand with the token). `listRepos`
+  enumerates clones.
+- **`session.js`** — `createSessionStore` keeps sessions in memory and persists a small JSON
+  index (`AGENT_STATE_DIR/sessions.json`) — NOT transcripts (the CLI owns those, replayed via
+  `--resume`). One turn per session at a time. `owner` defaults to `"default"` — a seam for
+  future multi-user.
+- **`publish.js`** — branch/commit/push/PR via `githubClient.post`. Hard guard: refuses
+  `main`/`master` (normalized for case/whitespace/`refs/heads/`).
+- **`routes.js`** — the `/api/agent` Express router; `index.js` wires the store + router into
+  `createApp` (passed as `agentRouter`, mounted only when provided).
 
 ## Conventions
 
