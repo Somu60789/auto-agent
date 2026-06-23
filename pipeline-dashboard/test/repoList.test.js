@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parseRepoUrl } from '../server/repoList.js';
 import { scanPipelineRepos } from '../server/repoList.js';
 import { scanLocalRepos } from '../server/repoList.js';
+import { buildRepoList } from '../server/repoList.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE_EP = path.join(__dirname, 'fixtures', 'ep-pipelines');
@@ -71,5 +72,33 @@ describe('scanLocalRepos', () => {
 
   it('returns empty array when the directory does not exist', async () => {
     expect(await scanLocalRepos('/no/such/path')).toEqual([]);
+  });
+});
+
+describe('buildRepoList', () => {
+  it('unions pipeline + local repos with membership flags', async () => {
+    const repos = await buildRepoList({
+      epPipelinesPath: FIXTURE_EP,
+      tmlReposPath: FIXTURE_TML,
+    });
+    const byName = Object.fromEntries(repos.map((r) => [r.fullName, r]));
+
+    expect(byName['tmlconnected/ep-home-ui'].inPipelines).toBe(true);
+    expect(byName['tmlconnected/ep-home-ui'].clonedLocally).toBe(true);
+
+    expect(byName['tmlconnected/control-tower-backend'].inPipelines).toBe(true);
+    expect(byName['tmlconnected/control-tower-backend'].clonedLocally).toBe(false);
+
+    expect(byName['tmlconnected/ep-issue-report'].inPipelines).toBe(false);
+    expect(byName['tmlconnected/ep-issue-report'].clonedLocally).toBe(true);
+  });
+
+  it('sorts results by fullName', async () => {
+    const repos = await buildRepoList({
+      epPipelinesPath: FIXTURE_EP,
+      tmlReposPath: FIXTURE_TML,
+    });
+    const names = repos.map((r) => r.fullName);
+    expect(names).toEqual([...names].sort());
   });
 });

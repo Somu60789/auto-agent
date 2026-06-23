@@ -99,3 +99,26 @@ export async function scanLocalRepos(tmlReposPath) {
   }
   return [...byFullName.values()];
 }
+
+export async function buildRepoList({ epPipelinesPath, tmlReposPath }) {
+  const [pipelineRepos, localRepos] = await Promise.all([
+    scanPipelineRepos(epPipelinesPath),
+    scanLocalRepos(tmlReposPath),
+  ]);
+  const byFullName = new Map();
+  const ensure = (repo) => {
+    if (!byFullName.has(repo.fullName)) {
+      byFullName.set(repo.fullName, {
+        ...repo,
+        inPipelines: false,
+        clonedLocally: false,
+      });
+    }
+    return byFullName.get(repo.fullName);
+  };
+  for (const repo of pipelineRepos) ensure(repo).inPipelines = true;
+  for (const repo of localRepos) ensure(repo).clonedLocally = true;
+  return [...byFullName.values()].sort((a, b) =>
+    a.fullName.localeCompare(b.fullName)
+  );
+}
