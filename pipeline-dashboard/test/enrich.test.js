@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { enrichRepo } from '../server/enrich.js';
+import { enrichAll } from '../server/enrich.js';
 
 function fakeClient(routes) {
   return {
@@ -75,5 +76,34 @@ describe('enrichRepo', () => {
     });
     const result = await enrichRepo(client, base);
     expect(result.dockerfile).toBe(true);
+  });
+});
+
+describe('enrichAll', () => {
+  it('enriches every repo and never exceeds the concurrency cap', async () => {
+    let active = 0;
+    let maxActive = 0;
+    const client = {
+      get: async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((r) => setTimeout(r, 5));
+        active -= 1;
+        return { ok: false, notFound: true, status: 404, data: null };
+      },
+      rateLimitRemaining: () => 99,
+    };
+    const repos = Array.from({ length: 20 }, (_, i) => ({
+      owner: 'o',
+      name: `r${i}`,
+      fullName: `o/r${i}`,
+      url: `https://github.com/o/r${i}`,
+      inPipelines: false,
+      clonedLocally: true,
+    }));
+    const results = await enrichAll(client, repos, { concurrency: 4 });
+    expect(results).toHaveLength(20);
+    expect(maxActive).toBeLessThanOrEqual(4 * 4);
+    expect(results.every((r) => 'githubActions' in r)).toBe(true);
   });
 });

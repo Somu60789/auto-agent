@@ -51,3 +51,21 @@ export async function enrichRepo(client, repo) {
     };
   }
 }
+
+export async function enrichAll(client, repos, { concurrency = 8 } = {}) {
+  const results = new Array(repos.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < repos.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await enrichRepo(client, repos[index]);
+    }
+  }
+  const workers = Array.from(
+    { length: Math.min(concurrency, repos.length) },
+    () => worker()
+  );
+  await Promise.all(workers);
+  return results;
+}
