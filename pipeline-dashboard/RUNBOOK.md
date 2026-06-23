@@ -6,6 +6,10 @@ Step-by-step to run the dashboard locally for a live demo.
 stops both), then open http://localhost:5173. The manual steps below are for when
 you want the two halves in separate terminals.
 
+**Stop everything:** `./stop.sh` — kills the backend and frontend by process name.
+Use it when they were started in the background or another shell and Ctrl-C isn't
+an option.
+
 ## 0. Prerequisites
 
 - Node 18+
