@@ -18,7 +18,10 @@ export function createSessionStore({ stateDir, runner, now = () => Date.now(), o
   async function persist() {
     await fs.mkdir(stateDir, { recursive: true });
     const arr = [...sessions.values()].map(indexRecord);
-    await fs.writeFile(indexPath, JSON.stringify(arr, null, 2));
+    // Write-then-rename so a crash mid-write can't corrupt the durable index.
+    const tmp = `${indexPath}.${now()}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify(arr, null, 2));
+    await fs.rename(tmp, indexPath);
   }
 
   async function load() {
@@ -32,11 +35,12 @@ export function createSessionStore({ stateDir, runner, now = () => Date.now(), o
   }
 
   async function create({ repos, cwd, title }) {
-    const id = `s_${now()}`;
+    const t = now();
+    const id = `s_${t}`;
     const s = {
       id, owner, title: title || repos.join(', '), repos, cwd,
       claudeSessionId: null, status: 'idle', prUrl: null,
-      createdAt: new Date(now()).toISOString(), transcript: [],
+      createdAt: new Date(t).toISOString(), transcript: [],
     };
     sessions.set(id, s);
     await persist();
@@ -54,18 +58,29 @@ export function createSessionStore({ stateDir, runner, now = () => Date.now(), o
   async function sendMessage(id, prompt, { onEvent = () => {} } = {}) {
     const s = sessions.get(id);
     if (!s) throw new Error(`Unknown session: ${id}`);
+    // One turn at a time per session: a second concurrent turn would interleave
+    // the transcript and race two --resume against the same CLI session.
+    if (s.status === 'running') return { sessionId: s.claudeSessionId, error: 'A turn is already in progress' };
     s.status = 'running';
     s.transcript.push({ type: 'user', text: prompt });
     const capture = (e) => {
       s.transcript.push(e);
       onEvent(e);
     };
-    const res = await runner.runTurn(
-      { cwd: s.cwd, prompt, sessionId: s.claudeSessionId },
-      { onEvent: capture }
-    );
-    if (res.sessionId) s.claudeSessionId = res.sessionId;
-    s.status = res.error ? 'error' : 'idle';
+    let res;
+    try {
+      res = await runner.runTurn(
+        { cwd: s.cwd, prompt, sessionId: s.claudeSessionId },
+        { onEvent: capture }
+      );
+      if (res.sessionId) s.claudeSessionId = res.sessionId;
+      s.status = res.error ? 'error' : 'idle';
+    } catch (err) {
+      // runner is contracted not to throw; if it does, don't strand the session
+      // as 'running' forever.
+      res = { sessionId: s.claudeSessionId, error: err.message || 'turn failed' };
+      s.status = 'error';
+    }
     await persist();
     return res;
   }

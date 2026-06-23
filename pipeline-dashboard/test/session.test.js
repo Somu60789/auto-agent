@@ -60,4 +60,36 @@ describe('session store', () => {
     expect(reloaded.title).toBe('persist');
     expect(reloaded.claudeSessionId).toBe('claude-1');
   });
+
+  it('sets status to error when the turn reports an error', async () => {
+    const store = createSessionStore({ stateDir: dir, runner: fakeRunner('claude-1', 'boom'), now });
+    const s = await store.create({ repos: ['a'], cwd: '/repo/a', title: 't' });
+    const res = await store.sendMessage(s.id, 'go');
+    expect(res.error).toBe('boom');
+    expect(store.get(s.id).status).toBe('error');
+  });
+
+  it('does not strand status as running if the runner throws', async () => {
+    const throwingRunner = { runTurn: async () => { throw new Error('kaboom'); } };
+    const store = createSessionStore({ stateDir: dir, runner: throwingRunner, now });
+    const s = await store.create({ repos: ['a'], cwd: '/repo/a', title: 't' });
+    const res = await store.sendMessage(s.id, 'go');
+    expect(res.error).toMatch(/kaboom/);
+    expect(store.get(s.id).status).toBe('error');
+  });
+
+  it('never writes transcript content to the index file', async () => {
+    const store = createSessionStore({ stateDir: dir, runner: fakeRunner(), now });
+    const s = await store.create({ repos: ['a'], cwd: '/repo/a', title: 't' });
+    await store.sendMessage(s.id, 'secret prompt');
+    const text = await fs.readFile(path.join(dir, 'sessions.json'), 'utf8');
+    expect(text).not.toContain('transcript');
+    expect(text).not.toContain('secret prompt');
+  });
+
+  it('load() no-ops on a missing index without throwing', async () => {
+    const store = createSessionStore({ stateDir: dir, runner: fakeRunner(), now });
+    await expect(store.load()).resolves.toBeUndefined();
+    expect(store.list()).toEqual([]);
+  });
 });
