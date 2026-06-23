@@ -52,3 +52,14 @@ Open http://localhost:5173. The Vite dev server proxies `/api` to the backend on
 ```bash
 cd pipeline-dashboard && npm test
 ```
+
+## Troubleshooting
+
+If `npm run dev` or `npm test` crash with worker/OpenSSL errors, check whether
+`NODE_OPTIONS=--openssl-legacy-provider` is set in your shell — it breaks Vite 5
+and Vitest worker threads. Clear it for the command:
+
+```bash
+NODE_OPTIONS= npm run dev
+NODE_OPTIONS= npm test
+```
