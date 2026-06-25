@@ -30,7 +30,7 @@ async function call(app, method, path, body) {
   return { status: res.status, data };
 }
 
-function buildApp(store = makeStore()) {
+function buildApp(store = makeStore(), overrides = {}) {
   const app = express();
   app.use(express.json());
   app.use('/api/agent', createAgentRouter({
@@ -40,6 +40,7 @@ function buildApp(store = makeStore()) {
     resolveRepo: async () => '/repo/r',
     listRepos: async () => ['r'],
     publish: async () => ({ prUrl: 'https://x/pull/1', error: null }),
+    ...overrides,
   }));
   return app;
 }
@@ -61,6 +62,20 @@ describe('agent routes', () => {
     const { status, data } = await call(buildApp(), 'POST', '/api/agent/s1/publish', { title: 't' });
     expect(status).toBe(200);
     expect(data.prUrl).toBe('https://x/pull/1');
+  });
+
+  it('creates a session despite an unresolvable repo, redacting the token in the warning', async () => {
+    const throwing = async () => {
+      throw new Error('Command failed: git clone https://ghp_SECRET@github.com/o/r.git\nRepository not found.');
+    };
+    const { status, data } = await call(
+      buildApp(makeStore(), { resolveRepo: throwing }),
+      'POST', '/api/agent/sessions', { repos: ['bogus'] }
+    );
+    expect(status).toBe(200);
+    expect(data.id).toBe('s1');
+    expect(data.warnings[0]).not.toContain('ghp_SECRET');
+    expect(data.warnings[0]).toContain('https://github.com/o/r.git');
   });
 
   it('returns 404 when messaging an unknown session', async () => {

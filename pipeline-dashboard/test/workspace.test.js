@@ -20,7 +20,7 @@ describe('resolveRepo', () => {
     const dir = await resolveRepo(
       { allReposPath: root, token: 'tok', owner: 'default' },
       'https://github.com/tmlconnected/ep-home-ui',
-      { cloneImpl: fakeClone }
+      { cloneImpl: fakeClone, pullImpl: async () => {} }
     );
     expect(dir).toBe(path.join(root, 'ep-home-ui'));
     expect(calls).toHaveLength(0);
@@ -54,16 +54,43 @@ describe('resolveRepo', () => {
     const dir = await resolveRepo(
       { allReposPath: root, token: 't', owner: 'default' },
       'smoke-test',
-      { cloneImpl: async (...a) => calls.push(a) }
+      { cloneImpl: async (...a) => calls.push(a), pullImpl: async () => {} }
     );
     expect(dir).toBe(path.join(root, 'smoke-test'));
     expect(calls).toHaveLength(0);
   });
 
-  it('throws for a bare name that is not cloned', async () => {
+  it('clones a bare name that is not cloned, using the configured owner', async () => {
+    const calls = [];
+    const fakeClone = async (url, dest) => {
+      calls.push({ url, dest });
+      await fs.mkdir(path.join(dest, '.git'), { recursive: true });
+    };
+    const dir = await resolveRepo(
+      { allReposPath: root, token: 't', owner: 'tmlconnected' },
+      'ep-eloto',
+      { cloneImpl: fakeClone }
+    );
+    expect(dir).toBe(path.join(root, 'ep-eloto'));
+    expect(calls[0].url).toContain('tmlconnected/ep-eloto');
+  });
+
+  it('throws for a bare uncloned name when no owner is configured', async () => {
     await expect(
-      resolveRepo({ allReposPath: root, token: 't', owner: 'default' }, 'missing', {})
-    ).rejects.toThrow(/ALL_Repos/);
+      resolveRepo({ allReposPath: root, token: 't', owner: null }, 'missing', {})
+    ).rejects.toThrow(/ALL_Repos|GITHUB_OWNER/);
+  });
+
+  it('pulls latest on an existing clone before reusing it', async () => {
+    await fs.mkdir(path.join(root, 'ep-home-ui', '.git'), { recursive: true });
+    const pulls = [];
+    const dir = await resolveRepo(
+      { allReposPath: root, token: 'tok', owner: 'tmlconnected' },
+      'https://github.com/tmlconnected/ep-home-ui',
+      { cloneImpl: async () => {}, pullImpl: async (d) => pulls.push(d) }
+    );
+    expect(dir).toBe(path.join(root, 'ep-home-ui'));
+    expect(pulls).toEqual([path.join(root, 'ep-home-ui')]);
   });
 });
 

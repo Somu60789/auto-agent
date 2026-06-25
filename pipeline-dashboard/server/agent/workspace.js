@@ -19,21 +19,41 @@ async function defaultClone(url, dest) {
   await execFileAsync('git', ['clone', url, dest]);
 }
 
+// Fetch latest on an existing clone. Best-effort: a pull failure (offline, dirty
+// tree, detached HEAD) must not block starting a session on the code already there.
+async function defaultPull(dir) {
+  try {
+    await execFileAsync('git', ['-C', dir, 'pull', '--ff-only'], { timeout: 60000 });
+  } catch {
+    /* keep the existing checkout */
+  }
+}
+
 // Resolve a repo reference (full URL or owner/name) to a working-copy dir under
 // allReposPath, cloning with the token if it isn't present yet.
 // owner is accepted now for the multi-user seam but unused single-user.
 export async function resolveRepo(
-  { allReposPath, token /*, owner */ },
+  { allReposPath, token, owner },
   ref,
-  { cloneImpl = defaultClone } = {}
+  { cloneImpl = defaultClone, pullImpl = defaultPull } = {}
 ) {
   const trimmed = String(ref).trim();
-  // A bare name (no slash) is an already-cloned repo picked from listRepos —
-  // resolve it directly to its dir instead of treating it as a GitHub ref.
+  // A bare name (no slash) is usually an already-cloned repo picked from listRepos.
+  // If it isn't cloned yet, promote it to {owner}/{name} and clone it on demand —
+  // so typing a name works the same as pasting a link (provided a default owner
+  // is configured). Without an owner we can't know where to clone from.
   if (/^[^/\s]+$/.test(trimmed)) {
     const dir = path.join(allReposPath, trimmed);
-    if (await exists(path.join(dir, '.git'))) return dir;
-    throw new Error(`No cloned repo named "${trimmed}" in ALL_Repos`);
+    if (await exists(path.join(dir, '.git'))) {
+      await pullImpl(dir);
+      return dir;
+    }
+    if (!owner) {
+      throw new Error(
+        `"${trimmed}" isn't cloned in ALL_Repos. Paste its GitHub link, or set GITHUB_OWNER to clone by name.`
+      );
+    }
+    return resolveRepo({ allReposPath, token, owner }, `${owner}/${trimmed}`, { cloneImpl, pullImpl });
   }
   // parseRepoUrl only recognizes github.com URLs, so promote a bare owner/name
   // reference to a full URL before parsing.
@@ -43,7 +63,11 @@ export async function resolveRepo(
   const parsed = parseRepoUrl(candidate + ' ');
   if (!parsed) throw new Error(`Unrecognized repo reference: ${ref}`);
   const dest = path.join(allReposPath, parsed.name);
-  if (await exists(path.join(dest, '.git'))) return dest;
+  // Existing clone → fetch latest and reuse; otherwise clone fresh.
+  if (await exists(path.join(dest, '.git'))) {
+    await pullImpl(dest);
+    return dest;
+  }
   await fs.mkdir(allReposPath, { recursive: true });
   const authUrl = `https://${token}@github.com/${parsed.fullName}.git`;
   await cloneImpl(authUrl, dest);
