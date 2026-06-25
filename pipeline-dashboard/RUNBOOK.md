@@ -79,3 +79,4 @@ Open **http://localhost:5173**. The UI is the Vite app on 5173 — the backend o
 | Worker / OpenSSL crash in Vite/Vitest | `NODE_OPTIONS=` was not cleared. Prefix the command with `NODE_OPTIONS=`. |
 | UI loads but no data | Backend not running, or `API_PORT` ≠ backend `PORT`. |
 | `curl localhost:<port>/` empty | Expected — backend only serves `/api/*`. |
+| Co-Worker turn fails with login/credentials error | No interactive `claude` login on the host. Set `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` in `.env`. |

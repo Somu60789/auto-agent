@@ -31,20 +31,50 @@ async function detectTests(client, prefix) {
   return checks.some(Boolean);
 }
 
-// Jira / ALM: config-presence signal (like Jenkins). True if the repo carries a
-// Jira/ALM integration marker file.
-const JIRA_FILES = [
-  '.jira.yml',
-  'jira.yml',
-  '.github/jira.yml',
-  'atlassian-ide-plugin.xml',
-  '.jira',
-];
-async function detectJira(client, prefix) {
-  const checks = await Promise.all(
-    JIRA_FILES.map((f) => pathExists(client, `${prefix}/contents/${f}`))
+// Jira / ALM: detect *real* integration, not just a suggestively-named file.
+// Three independent proofs, any of which is sufficient:
+//   1. a Jira config file committed to the repo,
+//   2. a jira-named workflow whose CONTENT calls a real Jira action / API,
+//   3. recent commits that reference Jira issue keys (active use).
+const JIRA_CONFIG_FILES = ['.jira.yml', 'jira.yml', 'atlassian-ide-plugin.xml', '.jira'];
+// Markers that prove a workflow actually talks to Jira (not just named "jira").
+const JIRA_ACTION_MARKERS = /atlassian\/gajira|atlassian\/jira|gajira|\.atlassian\.net|JIRA_(API|BASE|TOKEN|USER|URL|HOST)/i;
+// Issue key at the start of a commit subject, e.g. "DAC-181 Add ...".
+const ISSUE_KEY = /^([A-Z][A-Z0-9]+)-\d+\b/;
+// Prefixes that look like issue keys but aren't (UTF-8, SHA-256, CVE-2021, ...).
+const KEY_DENYLIST = new Set(['UTF', 'SHA', 'SHA1', 'SHA256', 'ISO', 'CVE', 'RFC', 'HTTP', 'HTTPS', 'IPV', 'IPV4', 'IPV6', 'MD5', 'BASE64', 'UTF8']);
+
+function commitReferencesJira(message) {
+  const m = (message || '').trim().match(ISSUE_KEY);
+  return Boolean(m) && !KEY_DENYLIST.has(m[1]);
+}
+
+async function workflowCallsJira(client, prefix, workflowsList) {
+  const named = (workflowsList || []).filter((f) => /jira/i.test(f?.name || ''));
+  for (const wf of named) {
+    const path = wf.path || `.github/workflows/${wf.name}`;
+    const res = await client.get(`${prefix}/contents/${path}`);
+    if (res.ok && res.data?.content) {
+      const body = Buffer.from(res.data.content, 'base64').toString('utf8');
+      if (JIRA_ACTION_MARKERS.test(body)) return true;
+    }
+  }
+  return false;
+}
+
+async function detectJira(client, prefix, workflowsList) {
+  const configHit = await Promise.all(
+    JIRA_CONFIG_FILES.map((f) => pathExists(client, `${prefix}/contents/${f}`))
   );
-  return checks.some(Boolean);
+  if (configHit.some(Boolean)) return true;
+  if (await workflowCallsJira(client, prefix, workflowsList)) return true;
+  // ponytail: 30 recent commits is enough to tell "actively linked to Jira"
+  // from "not". Older history isn't worth the extra paging.
+  const commits = await client.get(`${prefix}/commits?per_page=30`);
+  if (commits.ok && Array.isArray(commits.data)) {
+    return commits.data.some((c) => commitReferencesJira(c?.commit?.message));
+  }
+  return false;
 }
 
 // Coverage: read the actual line coverage % from Codecov for this repo.
@@ -59,18 +89,19 @@ export async function enrichRepo(client, repo, { codecov = null } = {}) {
   const { owner, name } = repo;
   const prefix = `/repos/${owner}/${name}`;
   try {
-    const [workflows, dockerfile, dockerCompose, runs, tests, coverage, jira] = await Promise.all([
-      pathExists(client, `${prefix}/contents/.github/workflows`),
+    const [workflowsRes, dockerfile, dockerCompose, runs, tests, coverage] = await Promise.all([
+      client.get(`${prefix}/contents/.github/workflows`),
       pathExists(client, `${prefix}/contents/Dockerfile`),
       pathExists(client, `${prefix}/contents/docker-compose.yml`),
       client.get(`${prefix}/actions/runs?per_page=1`),
       detectTests(client, prefix),
       detectCoverage(codecov, owner, name),
-      detectJira(client, prefix),
     ]);
+    const workflowsList = Array.isArray(workflowsRes.data) ? workflowsRes.data : [];
+    const jira = await detectJira(client, prefix, workflowsList);
     return {
       ...repo,
-      githubActions: workflows,
+      githubActions: workflowsRes.ok,
       dockerfile: dockerfile || dockerCompose,
       jenkins: Boolean(repo.inPipelines),
       latestBuild: runs.ok ? mapLatestRun(runs.data) : { status: 'unknown', url: null },

@@ -98,6 +98,66 @@ describe('enrichRepo', () => {
     expect(result.jira).toBe(true);
   });
 
+  it('detects Jira when a jira-* workflow actually calls a Jira action', async () => {
+    const wf = Buffer.from('uses: atlassian/gajira-transition@v3').toString('base64');
+    const client = fakeClient({
+      '/repos/tmlconnected/ep-home-ui/contents/.github/workflows': {
+        status: 200,
+        data: [{ name: 'build.yml' }, { name: 'jira-sync.yml', path: '.github/workflows/jira-sync.yml' }],
+      },
+      '/repos/tmlconnected/ep-home-ui/contents/.github/workflows/jira-sync.yml': {
+        status: 200,
+        data: { content: wf },
+      },
+      '/repos/tmlconnected/ep-home-ui/actions/runs?per_page=1': { status: 200, data: { workflow_runs: [] } },
+    });
+    const result = await enrichRepo(client, base);
+    expect(result.githubActions).toBe(true);
+    expect(result.jira).toBe(true);
+  });
+
+  it('does NOT flag Jira for a jira-named workflow with no real Jira call', async () => {
+    const wf = Buffer.from('run: echo "nothing to see"').toString('base64');
+    const client = fakeClient({
+      '/repos/tmlconnected/ep-home-ui/contents/.github/workflows': {
+        status: 200,
+        data: [{ name: 'jira-sync.yml', path: '.github/workflows/jira-sync.yml' }],
+      },
+      '/repos/tmlconnected/ep-home-ui/contents/.github/workflows/jira-sync.yml': {
+        status: 200,
+        data: { content: wf },
+      },
+      '/repos/tmlconnected/ep-home-ui/actions/runs?per_page=1': { status: 200, data: { workflow_runs: [] } },
+      '/repos/tmlconnected/ep-home-ui/commits?per_page=30': { status: 200, data: [] },
+    });
+    const result = await enrichRepo(client, base);
+    expect(result.jira).toBe(false);
+  });
+
+  it('detects Jira from issue keys in recent commits', async () => {
+    const client = fakeClient({
+      '/repos/tmlconnected/ep-home-ui/actions/runs?per_page=1': { status: 200, data: { workflow_runs: [] } },
+      '/repos/tmlconnected/ep-home-ui/commits?per_page=30': {
+        status: 200,
+        data: [{ commit: { message: 'chore: tidy' } }, { commit: { message: 'DAC-181 Add Jira integration' } }],
+      },
+    });
+    const result = await enrichRepo(client, base);
+    expect(result.jira).toBe(true);
+  });
+
+  it('ignores non-Jira prefixes like UTF-8 in commits', async () => {
+    const client = fakeClient({
+      '/repos/tmlconnected/ep-home-ui/actions/runs?per_page=1': { status: 200, data: { workflow_runs: [] } },
+      '/repos/tmlconnected/ep-home-ui/commits?per_page=30': {
+        status: 200,
+        data: [{ commit: { message: 'UTF-8 encoding fix' } }, { commit: { message: 'CVE-2021 patch' } }],
+      },
+    });
+    const result = await enrichRepo(client, base);
+    expect(result.jira).toBe(false);
+  });
+
   it('falls back to docker-compose.yml for the dockerfile flag', async () => {
     const client = fakeClient({
       '/repos/tmlconnected/ep-home-ui/contents/docker-compose.yml': { status: 200, data: { name: 'docker-compose.yml' } },

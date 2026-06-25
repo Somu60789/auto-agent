@@ -48,6 +48,9 @@ Open http://localhost:5173. The Vite dev server proxies `/api` to the backend on
 | `ALL_REPOS_PATH` | sibling `ALL_Repos` of `TML_REPOS_PATH` | Repos the Co-Worker agent edits; new repos clone here |
 | `AGENT_STATE_DIR` | `$ALL_REPOS_PATH/.co-worker` | Co-Worker session index (`sessions.json`) |
 | `CLAUDE_BIN` | `claude` | Path to the agent CLI binary |
+| `ANTHROPIC_API_KEY` | (none) | Co-Worker auth via API billing — forwarded to the spawned `claude` CLI |
+| `CLAUDE_CODE_OAUTH_TOKEN` | (none) | Co-Worker auth via Claude subscription (`claude setup-token`); used if no API key |
+| `GITHUB_OWNER` | `tmlconnected` | Org/user for cloning a repo typed by bare name |
 | `PORT` | `4000` | Backend port |
 | `CACHE_TTL_SECONDS` | `300` | Cache lifetime for enriched data (0 = always refresh) |
 
@@ -58,6 +61,11 @@ ships the changes as a pull request for you to approve on GitHub. It drives the 
 CLI against working copies under `ALL_REPOS_PATH`.
 
 Prerequisite: the `claude` CLI must be installed and on `PATH` (override with `CLAUDE_BIN`).
+
+**Authentication.** Locally the CLI uses your interactive `claude` login. On a deployed host
+there is no interactive login, so set one auth var in `.env` — `ANTHROPIC_API_KEY` (API
+billing) or `CLAUDE_CODE_OAUTH_TOKEN` (subscription, from `claude setup-token`). The server
+forwards it to the CLI. Without it, Co-Worker turns fail with a login/credentials error.
 
 Usage:
 

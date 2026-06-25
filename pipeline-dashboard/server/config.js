@@ -12,6 +12,12 @@ export function loadConfig(env = process.env) {
     env.ALL_REPOS_PATH || path.join(path.dirname(tmlReposPath), 'ALL_Repos');
   const agentStateDir = env.AGENT_STATE_DIR || path.join(allReposPath, '.co-worker');
   const claudeBin = env.CLAUDE_BIN || 'claude';
+  // Credential for the spawned `claude` CLI so it authenticates non-interactively
+  // (no `~/.claude` login on a deployed host). Either works; API key takes precedence.
+  const anthropicApiKey = env.ANTHROPIC_API_KEY || null;
+  const claudeCodeOauthToken = env.CLAUDE_CODE_OAUTH_TOKEN || null;
+  // Default GitHub org/user used to clone a repo typed by bare name in the agent.
+  const githubOwner = env.GITHUB_OWNER || 'tmlconnected';
   return {
     githubToken,
     tmlReposPath,
@@ -19,6 +25,9 @@ export function loadConfig(env = process.env) {
     allReposPath,
     agentStateDir,
     claudeBin,
+    anthropicApiKey,
+    claudeCodeOauthToken,
+    githubOwner,
     // Optional Codecov token — without it, only public repos return coverage.
     codecovToken: env.CODECOV_TOKEN || null,
     port: parseNumber(env.PORT, 4000),

@@ -25,16 +25,24 @@ function emitFromLine(line, onEvent, state) {
 // Spawn the claude CLI for one turn. Streams parsed events via onEvent.
 // Never throws: a spawn/exit failure resolves with { sessionId, error }.
 export function runTurn(
-  { cwd, prompt, sessionId, claudeBin = 'claude' },
+  { cwd, prompt, sessionId, claudeBin = 'claude', anthropicApiKey, claudeCodeOauthToken },
   { spawnImpl = nodeSpawn, onEvent = () => {} } = {}
 ) {
   return new Promise((resolve) => {
     const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose'];
     if (sessionId) args.push('--resume', sessionId);
 
+    // Pass credentials through so the CLI authenticates non-interactively on a
+    // deployed host (no `~/.claude` login). Only set keys we actually have.
+    const env = { ...process.env };
+    if (anthropicApiKey) env.ANTHROPIC_API_KEY = anthropicApiKey;
+    if (claudeCodeOauthToken) env.CLAUDE_CODE_OAUTH_TOKEN = claudeCodeOauthToken;
+
     let child;
     try {
-      child = spawnImpl(claudeBin, args, { cwd });
+      // Close stdin: the prompt is passed via -p, and an open stdin makes the CLI
+      // wait (then warn) for piped input that never comes.
+      child = spawnImpl(claudeBin, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (err) {
       const error = err.message || 'failed to spawn claude';
       onEvent({ type: 'result', error });

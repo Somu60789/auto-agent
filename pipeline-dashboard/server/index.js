@@ -69,7 +69,12 @@ export async function startServer() {
   const client = createGithubClient({ token: config.githubToken });
   const codecov = createCodecovClient({ token: config.codecovToken });
   const runner = {
-    runTurn: (turn, opts) => runTurn({ ...turn, claudeBin: config.claudeBin }, opts),
+    runTurn: (turn, opts) => runTurn({
+      ...turn,
+      claudeBin: config.claudeBin,
+      anthropicApiKey: config.anthropicApiKey,
+      claudeCodeOauthToken: config.claudeCodeOauthToken,
+    }, opts),
   };
   const store = createSessionStore({ stateDir: config.agentStateDir, runner });
   await store.load();

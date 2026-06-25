@@ -27,16 +27,26 @@ export function createAgentRouter({ config, store, client, resolveRepo, listRepo
   router.post('/sessions', async (req, res) => {
     try {
       const refs = req.body.repos || [];
+      // Resolve each repo, but don't let a bad ref kill the whole session: a casual
+      // question needs no repo, and an unresolvable repo shouldn't 500. Collect what
+      // resolves and report the rest so the user knows it was skipped.
       const dirs = [];
+      const warnings = [];
       for (const ref of refs) {
-        dirs.push(await resolveRepo(
-          { allReposPath: config.allReposPath, token: config.githubToken, owner: 'default' },
-          ref
-        ));
+        try {
+          dirs.push(await resolveRepo(
+            { allReposPath: config.allReposPath, token: config.githubToken, owner: config.githubOwner },
+            ref
+          ));
+        } catch (err) {
+          // git errors echo the clone URL, which embeds the token — redact it.
+          const safe = String(err.message).replace(/https:\/\/[^@\s]+@/g, 'https://');
+          warnings.push(`${ref}: ${safe}`);
+        }
       }
       const cwd = dirs.length === 1 ? dirs[0] : config.allReposPath;
       const session = await store.create({ repos: refs, cwd, title: req.body.title });
-      res.json(session);
+      res.json(warnings.length ? { ...session, warnings } : session);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
