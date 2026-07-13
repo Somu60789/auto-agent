@@ -197,29 +197,35 @@ def flag_email(message_id: str, reason: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _send_via_outlook_com(to: list[str], subject: str, body: str, cc: list[str] | None = None) -> bool:
-    """Send via Outlook COM automation (requires M365/Outlook installed)."""
+    """
+    Queue email for Outlook COM dispatch.
+    Direct COM dispatch from a Windows service (Session 0) fails with 'Server execution failed'
+    because Outlook is a GUI app that requires an interactive session.
+    Instead, write to the SQLite queue — email_queue_sender.py (Scheduled Task, user session) picks it up.
+    """
     try:
-        import pythoncom, win32com.client  # noqa: F401
-        pythoncom.CoInitialize()
-        ol = win32com.client.Dispatch("Outlook.Application")
-        mail = ol.CreateItem(0)  # 0 = olMailItem
-        mail.To      = "; ".join(to)
-        mail.Subject = subject
-        mail.Body    = body
-        if cc:
-            mail.CC = "; ".join(cc)
-        mail.Send()
-        log.info("Email sent via Outlook COM to %s", to)
+        import sqlite3, os
+        db = os.environ.get("DB_PATH", r"C:\claude-delegate\memory.db")
+        conn = sqlite3.connect(db, timeout=10)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS email_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                to_addr TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL,
+                cc TEXT DEFAULT '', status TEXT DEFAULT 'pending',
+                created TEXT DEFAULT (datetime('now')), sent_at TEXT
+            )
+        """)
+        conn.execute(
+            "INSERT INTO email_queue (to_addr, subject, body, cc) VALUES (?, ?, ?, ?)",
+            ("; ".join(to), subject, body, "; ".join(cc) if cc else "")
+        )
+        conn.commit()
+        conn.close()
+        log.info("Email queued for Outlook COM dispatch: subject=%s to=%s", subject, to)
         return True
     except Exception as e:
-        log.debug("Outlook COM unavailable: %s", e)
+        log.debug("Email queue write failed: %s", e)
         return False
-    finally:
-        try:
-            import pythoncom
-            pythoncom.CoUninitialize()
-        except Exception:
-            pass
 
 
 def _send_via_smtp(to: list[str], subject: str, body: str, cc: list[str] | None = None) -> bool:
