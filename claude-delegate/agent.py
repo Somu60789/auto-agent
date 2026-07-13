@@ -25,7 +25,7 @@ import onedrive_client as odc
 # Config
 # ---------------------------------------------------------------------------
 BEDROCK_REGION  = os.environ.get("BEDROCK_REGION", "ap-south-1")
-MODEL_ID        = os.environ.get("BEDROCK_MODEL_ID", "anthropic.claude-sonnet-4-6")
+MODEL_ID        = os.environ.get("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-4-6")
 DB_PATH         = os.environ.get("DB_PATH",  r"C:\claude-delegate\memory.db")
 LOG_PATH        = os.environ.get("LOG_PATH", r"C:\claude-delegate\logs\agent.log")
 POLL_INTERVAL        = int(os.environ.get("POLL_INTERVAL_SECONDS", "60"))
