@@ -3,19 +3,16 @@ Claude Delegate Agent — fully autonomous email + Teams responder.
 Runs as a Windows Service on Windows-Assembly (i-0f14a1e74dd7aac60).
 
 Auth:    EC2 IAM role (SSM_Role + AmazonBedrockFullAccess) — zero keys needed
-Email:   Outlook COM automation via pywin32 (Outlook handles M365/MFA auth)
-Teams:   Teams COM automation via pywin32
-LLM:     Amazon Bedrock (claude-sonnet-4-6, ap-south-1)
-
-No Azure App Registration. No public endpoints. Pure Windows COM + IAM role.
+Email:   Microsoft Graph API via MSAL device flow (no Outlook, no App Registration)
+Teams:   Teams session token via Windows Credential Manager
+LLM:     Amazon Bedrock (global.anthropic.claude-sonnet-4-6, ap-south-1)
 """
 
 import os, json, sqlite3, logging, textwrap, time, traceback
 from datetime import datetime, timezone
 
 import boto3
-import win32com.client
-import pythoncom
+import graph_mail_client as gmc
 import teams_client
 import jira_confluence_client as jcc
 import github_client as ghc
@@ -97,122 +94,18 @@ def log_action(source: str, action: str, detail: str):
     log.info("action=%s source=%s detail=%s", action, source, detail[:200])
 
 # ---------------------------------------------------------------------------
-# Outlook COM helpers
+# Email helpers — Microsoft Graph API (no Outlook required)
 # ---------------------------------------------------------------------------
 
-def get_outlook():
-    pythoncom.CoInitialize()
-    return win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
+def get_unread_emails() -> list[dict]:
+    return gmc.get_unread_emails(limit=20)
 
-def get_unread_emails(outlook) -> list[dict]:
-    inbox = outlook.GetDefaultFolder(6)  # 6 = olFolderInbox
-    messages = inbox.Items
-    messages.Sort("[ReceivedTime]", True)
-    results = []
-    for msg in messages:
-        try:
-            if msg.UnRead:
-                results.append({
-                    "entry_id":       msg.EntryID,
-                    "subject":        msg.Subject or "",
-                    "sender":         msg.SenderEmailAddress or "",
-                    "sender_name":    msg.SenderName or "",
-                    "to":             msg.To or "",
-                    "cc":             msg.CC or "",
-                    "body":           msg.Body[:3000] if msg.Body else "",
-                    "received":       str(msg.ReceivedTime),
-                    "conversation_id": msg.ConversationID or "",
-                    "com_object":     msg,  # keep ref for reply/forward
-                })
-                if len(results) >= 20:
-                    break
-        except Exception:
-            continue
-    return results
-
-def get_thread_emails_com(outlook, conversation_id: str, limit: int = 8) -> list[dict]:
-    inbox = outlook.GetDefaultFolder(6)
-    sent  = outlook.GetDefaultFolder(5)  # 5 = olFolderSentMail
-    results = []
-    for folder in [inbox, sent]:
-        for msg in folder.Items:
-            try:
-                if msg.ConversationID == conversation_id:
-                    results.append({
-                        "from":     msg.SenderEmailAddress or "",
-                        "body":     msg.Body[:1500] if msg.Body else "",
-                        "received": str(msg.ReceivedTime),
-                    })
-            except Exception:
-                continue
-    results.sort(key=lambda x: x["received"])
-    return results[-limit:]
-
-def reply_email_com(msg_obj, body: str):
-    reply = msg_obj.Reply()
-    reply.Body = body + "\n\n" + reply.Body
-    reply.Send()
-
-def reply_all_email_com(msg_obj, body: str):
-    reply = msg_obj.ReplyAll()
-    reply.Body = body + "\n\n" + reply.Body
-    reply.Send()
-
-def forward_email_com(msg_obj, to_addresses: list[str], comment: str):
-    fwd = msg_obj.Forward()
-    fwd.To = "; ".join(to_addresses)
-    fwd.Body = comment + "\n\n" + fwd.Body
-    fwd.Send()
-
-def send_new_email_com(outlook, to: list[str], subject: str, body: str, cc: list[str] | None = None):
-    mail = outlook.Application.CreateItem(0)  # 0 = olMailItem
-    mail.To      = "; ".join(to)
-    mail.Subject = subject
-    mail.Body    = body
-    if cc:
-        mail.CC = "; ".join(cc)
-    mail.Send()
-
-def mark_read_com(msg_obj):
-    msg_obj.UnRead = False
-    msg_obj.Save()
-
-def flag_email_com(msg_obj, reason: str):
-    msg_obj.FlagRequest = f"Review: {reason}"
-    msg_obj.FlagStatus  = 2  # olFlagMarked
-    msg_obj.Save()
+def get_thread_emails_graph(conversation_id: str, limit: int = 8) -> list[dict]:
+    return gmc.get_thread_emails(conversation_id, limit)
 
 # ---------------------------------------------------------------------------
-# Teams COM helpers (Microsoft Teams client must be running)
+# Teams helpers
 # ---------------------------------------------------------------------------
-
-def get_unread_teams_messages() -> list[dict]:
-    """
-    Teams doesn't expose a proper COM/OLE interface like Outlook.
-    We use the Teams logs + win32com via shell automation as a fallback.
-    Real approach: Teams stores recent messages in LevelDB at:
-      %AppData%\Microsoft\Teams\IndexedDB\
-    For enterprise: use Graph API or Teams bot (requires Azure App).
-    This implementation reads from Teams notification toast history via
-    Windows Shell — a zero-registration approach that works when Teams is open.
-    """
-    results = []
-    try:
-        shell = win32com.client.Dispatch("WScript.Shell")
-        # Teams writes recent chats to local storage — read the last known
-        # unread indicator via the notification log
-        # ponytail: this is best-effort; Teams COM access is limited without Graph
-        appdata = os.environ.get("APPDATA", "")
-        teams_log = os.path.join(appdata, r"Microsoft\Teams\logs.txt")
-        if os.path.exists(teams_log):
-            with open(teams_log, "r", encoding="utf-8", errors="ignore") as f:
-                lines = f.readlines()[-200:]
-            for line in lines:
-                if "incoming_message" in line.lower() or "chat_message" in line.lower():
-                    results.append({"raw_log": line.strip(), "source": "teams_log"})
-    except Exception as e:
-        log.warning("Teams COM read failed: %s", e)
-    return results
 
 def send_teams_chat(chat_id: str, body: str) -> dict:
     return teams_client.send_teams_message(chat_id, body)
@@ -278,73 +171,58 @@ def create_onedrive_folder(parent_path: str, folder_name: str) -> dict:
     return odc.create_folder(parent_path, folder_name)
 
 # ---------------------------------------------------------------------------
-# Tool implementations
+# Tool implementations — email via Graph API
 # ---------------------------------------------------------------------------
-# These are called by name from Claude's tool_use blocks.
-# msg_store holds live COM objects keyed by entry_id (within one poll cycle).
-msg_store: dict = {}
-outlook_ns = None
+msg_store: dict = {}   # entry_id → email dict (within one poll cycle)
 
 def read_email(entry_id: str) -> dict:
     msg = msg_store.get(entry_id)
     if not msg:
         return {"error": "message not in current batch"}
     return {
-        "subject":  msg["subject"],
-        "from":     msg["sender"],
-        "to":       msg["to"],
-        "cc":       msg["cc"],
-        "body":     msg["body"],
-        "received": msg["received"],
+        "subject":   msg["subject"],
+        "from":      msg["sender"],
+        "to":        msg["to"],
+        "cc":        msg["cc"],
+        "body":      msg["body"],
+        "received":  msg["received"],
         "thread_id": msg["conversation_id"],
     }
 
 def get_thread(entry_id: str) -> list:
     msg = msg_store.get(entry_id)
-    if not msg or not outlook_ns:
+    if not msg:
         return []
-    return get_thread_emails_com(outlook_ns, msg["conversation_id"])
+    return get_thread_emails_graph(msg["conversation_id"])
 
 def reply_email(entry_id: str, body: str, reply_all: bool = False) -> dict:
     msg = msg_store.get(entry_id)
     if not msg:
         return {"error": "message not found"}
-    if reply_all:
-        reply_all_email_com(msg["com_object"], body)
-    else:
-        reply_email_com(msg["com_object"], body)
-    mark_read_com(msg["com_object"])
+    result = gmc.reply_email(entry_id, body, reply_all)
     log_action(entry_id, "email_reply", body[:300])
-    return {"status": "sent"}
+    return result
 
 def forward_email(entry_id: str, to_addresses: list[str], comment: str) -> dict:
     msg = msg_store.get(entry_id)
     if not msg:
         return {"error": "message not found"}
-    forward_email_com(msg["com_object"], to_addresses, comment)
-    mark_read_com(msg["com_object"])
+    result = gmc.forward_email(entry_id, to_addresses, comment)
     log_action(entry_id, "email_forward", f"to={to_addresses}")
-    return {"status": "forwarded"}
+    return result
 
 def send_new_email(to: list[str], subject: str, body: str, cc: list[str] | None = None) -> dict:
-    if not outlook_ns:
-        return {"error": "outlook not connected"}
-    send_new_email_com(outlook_ns, to, subject, body, cc)
+    result = gmc.send_new_email(to, subject, body, cc)
     log_action("new", "email_send", f"to={to} subject={subject}")
-    return {"status": "sent"}
+    return result
 
 def flag_for_review(entry_id: str, reason: str) -> dict:
-    msg = msg_store.get(entry_id)
-    if msg:
-        flag_email_com(msg["com_object"], reason)
-        mark_read_com(msg["com_object"])
+    gmc.flag_email(entry_id, reason)
     log_action(entry_id, "flagged", reason)
     return {"status": "flagged"}
 
 def mark_read(entry_id: str) -> dict:
-    msg = msg_store.get(entry_id)
-    if msg:
-        mark_read_com(msg["com_object"])
+    gmc.mark_read(entry_id)
     log_action(entry_id, "mark_read", "")
     return {"status": "marked_read"}
 
@@ -767,12 +645,10 @@ def run_agent(prompt: str, context_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 def poll_once():
-    global outlook_ns, msg_store
-    pythoncom.CoInitialize()
+    global msg_store
     try:
-        # --- Outlook emails ---
-        outlook_ns = get_outlook()
-        emails = get_unread_emails(outlook_ns)
+        # --- Email via Graph API ---
+        emails = get_unread_emails()
         for email in emails:
             eid = email["entry_id"]
             if is_processed(eid):
@@ -819,18 +695,13 @@ def poll_once():
         log.error("poll_once error: %s\n%s", e, traceback.format_exc())
     finally:
         msg_store = {}
-        pythoncom.CoUninitialize()
 
 
 def send_daily_update():
-    """
-    Runs at DAILY_UPDATE_HOUR (default 6 PM IST).
-    Compiles today's work from Jira + action log and emails Monojit + Sameer.
-    """
+    """Runs at DAILY_UPDATE_HOUR (default 6 PM IST)."""
     log.info("Generating daily work update...")
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    # Gather today's actions from DB
     with get_db() as conn:
         rows = conn.execute(
             "SELECT source, action, detail, ts FROM action_log WHERE ts LIKE ? ORDER BY ts",
@@ -840,7 +711,6 @@ def send_daily_update():
         f"- [{r[3][11:16]}] {r[1]}: {r[2][:100]}" for r in rows
     ) or "No logged actions today."
 
-    # Get open Jira issues
     try:
         issues = jcc.get_my_open_issues(10)
         jira_summary = "\n".join(
@@ -870,15 +740,10 @@ to=["{DAILY_UPDATE_TO.split(',')[0]}", "{DAILY_UPDATE_TO.split(',')[1] if ',' in
 subject="Daily Work Update — {today} — Somasekhar Eruvuri"
 """
     try:
-        pythoncom.CoInitialize()
-        global outlook_ns
-        outlook_ns = get_outlook()
         run_agent(prompt.strip(), context_id="daily-update")
         log_action("scheduler", "daily_update_sent", today)
     except Exception as e:
         log.error("Daily update failed: %s\n%s", e, traceback.format_exc())
-    finally:
-        pythoncom.CoUninitialize()
 
 def send_report(period: str, label: str):
     """
@@ -934,15 +799,10 @@ Instructions:
    subject="{period.capitalize()} Work Report — {label} — Somasekhar Eruvuri"
 """
     try:
-        pythoncom.CoInitialize()
-        global outlook_ns
-        outlook_ns = get_outlook()
         run_agent(prompt.strip(), context_id=f"{period}-report")
         log_action("scheduler", f"{period}_report_sent", today)
     except Exception as e:
         log.error("%s report failed: %s\n%s", period, e, traceback.format_exc())
-    finally:
-        pythoncom.CoUninitialize()
 
 
 def main():
