@@ -31,7 +31,7 @@ from pathlib import Path
 # CONFIG — override via environment or .env file
 # ---------------------------------------------------------------------------
 BEDROCK_REGION   = os.environ.get("BEDROCK_REGION", "ap-south-1")
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "anthropic.claude-sonnet-4-6")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-4-6")
 OWNER_EMAIL      = os.environ.get("OWNER_EMAIL", "somasekhar.eruvuri@tatamotors.com")
 REPORT_TO        = os.environ.get("DAILY_UPDATE_TO",
                        "Monojit.Chakraborty@tatamotors.com,sameer.desai@tatamotors.com")
@@ -180,13 +180,55 @@ def _build_html(period: str, label: str, today: str,
 </div>
 
 <div class="card">
-  <h2>&#128274; Known Blockers</h2>
-  <ul>
-    <li><strong>DRG return route</strong> — 172.27.201.0/24 → MPLS on drg-oc3-hub.
-        Oracle ACS CR pending with manoj.k.jha@oracle.com. All OC3 OKE deploys blocked until resolved.</li>
-    <li><strong>HARBOR_PASSWORD</strong> — pending Harbor OC3 go-live</li>
-    <li><strong>MSK bootstrap endpoint</strong> — REPLACE_MSK_BOOTSTRAP_ENDPOINT in mirrormaker2-cr.yaml</li>
-  </ul>
+  <h2>&#128308; Active Blockers</h2>
+  <table>
+    <thead><tr><th>Priority</th><th>Blocker</th><th>Impact</th><th>Owner</th><th>Action Required</th></tr></thead>
+    <tbody>
+      <tr class="fail"><td>&#128308; P0</td><td>DRG return route missing</td><td>All OC3 deploys blocked — kubectl, ArgoCD, MirrorMaker2, CNPG replication all timeout</td><td>Oracle ACS — manoj.k.jha@oracle.com</td><td>Add static route on drg-oc3-hub: 172.31.0.0/16 → MPLS/FastConnect attachment</td></tr>
+      <tr class="fail"><td>&#128308; P0</td><td>MSK bootstrap endpoint not set</td><td>MirrorMaker2 CR cannot connect to AWS Kafka — OC3 Kafka replication not running</td><td>Somasekhar</td><td>Replace REPLACE_MSK_BOOTSTRAP_ENDPOINT in mirrormaker2-cr.yaml with actual MSK broker endpoint</td></tr>
+      <tr><td>&#128993; P1</td><td>ATLASSIAN_API_TOKEN not set</td><td>Agent cannot read/write Jira issues or Confluence pages</td><td>Somasekhar</td><td>Generate from id.atlassian.net → Security → API tokens → add to C:\claude-delegate\.env</td></tr>
+      <tr><td>&#128993; P1</td><td>HARBOR_PASSWORD pending go-live</td><td>Harbor OC3 registry CI push blocked — images not replicating from OCIR to Harbor</td><td>OC3 team</td><td>Confirm Harbor go-live, set HARBOR_PASSWORD in GitHub secrets</td></tr>
+      <tr><td>&#128993; P1</td><td>OCIR token rotation</td><td>ocir-pull-secret may expire — OC3 nodes cannot pull images from OCIR</td><td>Somasekhar</td><td>Rotate OCIR auth token, re-seal with kubeseal once ArgoCD is running</td></tr>
+      <tr><td>&#128994; P2</td><td>SealedSecrets public key</td><td>All placeholder secrets need sealing with cluster key — requires DRG + ArgoCD wave 0 first</td><td>Somasekhar</td><td>After DRG fixed: kubeseal --fetch-cert → seal all REPLACE_WITH_SEALED_SECRET placeholders</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>&#9989; Infrastructure Status</h2>
+  <table>
+    <thead><tr><th>Component</th><th>Status</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr class="pass"><td>OC3 OKE Cluster</td><td>&#9989; Running</td><td>v1.33.1, 2 worker nodes Ready, private API 172.27.201.190:6443</td></tr>
+      <tr class="pass"><td>OCI OKE Cluster</td><td>&#9989; Running</td><td>OCI Tenancy, apps deployed, ingress LB 172.27.201.109</td></tr>
+      <tr class="pass"><td>Bedrock Agent</td><td>&#9989; Running</td><td>ClaudeDelegate service on i-0f14a1e74dd7aac60, model global.anthropic.claude-sonnet-4-6</td></tr>
+      <tr class="pass"><td>M365 / Outlook</td><td>&#9989; Installed</td><td>v16.0.20131.20112 on Windows-Assembly, signed in as ess527162@tatamotors.com</td></tr>
+      <tr class="pass"><td>GitHub CI (OCI)</td><td>&#9989; Active</td><td>ECR push + Harbor dual-push wired in planning repos</td></tr>
+      <tr><td>ArgoCD OC3</td><td>&#128308; Blocked</td><td>Waiting on DRG return route — all manifests ready in ep-infrastructure/argocd/oracle/oc3/</td></tr>
+      <tr><td>MirrorMaker2</td><td>&#128308; Blocked</td><td>Waiting on DRG + MSK endpoint — Strimzi operator and MM2 CR ready</td></tr>
+      <tr><td>CNPG Replication</td><td>&#128308; Blocked</td><td>Waiting on DRG — CNPG cluster manifests ready, RDS logical replication slot pending</td></tr>
+      <tr><td>Harbor OC3</td><td>&#128993; Pending</td><td>Manifests ready, waiting on Harbor go-live + HARBOR_PASSWORD</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>&#128203; Pending Actions</h2>
+  <table>
+    <thead><tr><th>Priority</th><th>Action</th><th>Unblocked By</th></tr></thead>
+    <tbody>
+      <tr class="fail"><td>&#128308; Now</td><td>DRG: add route 172.31.0.0/16 → MPLS on drg-oc3-hub — send CR to manoj.k.jha@oracle.com</td><td>Oracle ACS action</td></tr>
+      <tr class="fail"><td>&#128308; Now</td><td>Set MSK bootstrap endpoint in mirrormaker2-cr.yaml</td><td>MSK cluster details</td></tr>
+      <tr><td>&#128993; Now</td><td>Generate Atlassian API token → add ATLASSIAN_API_TOKEN to C:\claude-delegate\.env</td><td>Self-service (id.atlassian.net)</td></tr>
+      <tr><td>&#128993; Now</td><td>Test email queue sender from RDP session: python email_queue_sender.py</td><td>Interactive RDP session</td></tr>
+      <tr><td>&#128993; Post-DRG</td><td>kubeseal --fetch-cert → seal all placeholder secrets</td><td>DRG + ArgoCD wave 0</td></tr>
+      <tr><td>&#128993; Post-DRG</td><td>ArgoCD bootstrap OC3: apply ep-infrastructure/argocd/oracle/oc3/ipms4/dev/</td><td>DRG route</td></tr>
+      <tr><td>&#128993; Post-DRG</td><td>Merge PRs #634, #564, #761 in planning repos</td><td>DRG route confirmed</td></tr>
+      <tr><td>&#128993; Post-DRG</td><td>Wire RDS → OC3 CNPG logical replication</td><td>DRG + ArgoCD</td></tr>
+      <tr><td>&#128993; Post-DRG</td><td>Wire MSK → OC3 MirrorMaker2 (Kafka replication)</td><td>DRG + MSK endpoint</td></tr>
+      <tr><td>&#128994; Post-Harbor</td><td>Enable Harbor Trivy air-gapped CVE scanning (configure trivy-db-mirror CronJob)</td><td>Harbor go-live</td></tr>
+    </tbody>
+  </table>
 </div>
 
 <div class="footer">
