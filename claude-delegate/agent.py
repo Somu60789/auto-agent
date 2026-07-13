@@ -18,6 +18,8 @@ import win32com.client
 import pythoncom
 import teams_client
 import jira_confluence_client as jcc
+import github_client as ghc
+import onedrive_client as odc
 
 # ---------------------------------------------------------------------------
 # Config
@@ -32,6 +34,8 @@ DAILY_UPDATE_HOUR    = int(os.environ.get("DAILY_UPDATE_HOUR", "18"))    # 6 PM 
 DAILY_UPDATE_TO      = os.environ.get("DAILY_UPDATE_TO",
                            "Monojit.Chakraborty@tatamotors.com,sameer.desai@tatamotors.com")
 JIRA_PROJECT_KEY     = os.environ.get("JIRA_PROJECT_KEY", "DAC")
+WATCHED_REPOS        = os.environ.get("WATCHED_REPOS",
+                           "ep-infrastructure,ep-production-planning,ep-required-material,ep-production-planning-ui").split(",")
 
 os.makedirs(r"C:\claude-delegate\logs", exist_ok=True)
 logging.basicConfig(
@@ -236,6 +240,43 @@ def search_confluence(query: str, space_key: str = "") -> list:
 def update_confluence_page(space_key: str, title: str, body_html: str, parent_id: str = "") -> dict:
     return jcc.create_or_update_confluence_page(space_key, title, body_html, parent_id)
 
+# GitHub tools
+def get_open_prs(repo: str) -> list:
+    return ghc.get_my_open_prs(repo)
+
+def comment_pr(repo: str, pr_number: int, body: str) -> dict:
+    return ghc.comment_on_pr(repo, pr_number, body)
+
+def create_github_issue(repo: str, title: str, body: str, labels: list | None = None) -> dict:
+    return ghc.create_issue(repo, title, body, labels)
+
+def check_failed_workflows() -> list:
+    return ghc.get_failed_workflows(WATCHED_REPOS)
+
+# OneDrive tools
+def upload_to_onedrive(folder_path: str, filename: str, content: str) -> dict:
+    return odc.upload_file(folder_path, filename, content)
+
+def list_onedrive(folder_path: str = "") -> list:
+    return odc.list_folder(folder_path)
+
+def download_from_onedrive(file_path: str) -> dict:
+    text = odc.download_file(file_path)
+    return {"content": text[:8000], "truncated": len(text) > 8000}
+
+def search_onedrive(query: str) -> list:
+    return odc.search_files(query)
+
+def move_onedrive_file(src_path: str, dest_folder_path: str, new_name: str = "") -> dict:
+    return odc.move_file(src_path, dest_folder_path, new_name or None)
+
+def get_onedrive_share_link(item_path: str) -> dict:
+    url = odc.create_share_link(item_path)
+    return {"share_url": url}
+
+def create_onedrive_folder(parent_path: str, folder_name: str) -> dict:
+    return odc.create_folder(parent_path, folder_name)
+
 # ---------------------------------------------------------------------------
 # Tool implementations
 # ---------------------------------------------------------------------------
@@ -322,7 +363,18 @@ TOOL_FN = {
     "update_jira_status":    update_jira_status,
     "comment_jira":          comment_jira,
     "search_confluence":     search_confluence,
-    "update_confluence_page": update_confluence_page,
+    "update_confluence_page":  update_confluence_page,
+    "get_open_prs":            get_open_prs,
+    "comment_pr":              comment_pr,
+    "create_github_issue":     create_github_issue,
+    "check_failed_workflows":  check_failed_workflows,
+    "upload_to_onedrive":      upload_to_onedrive,
+    "list_onedrive":           list_onedrive,
+    "download_from_onedrive":  download_from_onedrive,
+    "search_onedrive":         search_onedrive,
+    "move_onedrive_file":      move_onedrive_file,
+    "get_onedrive_share_link": get_onedrive_share_link,
+    "create_onedrive_folder":  create_onedrive_folder,
 }
 
 # ---------------------------------------------------------------------------
@@ -499,6 +551,120 @@ TOOLS = [
                 "parent_id":  {"type": "string"},
             },
             "required": ["space_key", "title", "body_html"],
+        },
+    },
+    {
+        "name": "get_open_prs",
+        "description": "List open pull requests in a GitHub repo.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"repo": {"type": "string"}},
+            "required": ["repo"],
+        },
+    },
+    {
+        "name": "comment_pr",
+        "description": "Post a comment on a GitHub PR or issue.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo":      {"type": "string"},
+                "pr_number": {"type": "integer"},
+                "body":      {"type": "string"},
+            },
+            "required": ["repo", "pr_number", "body"],
+        },
+    },
+    {
+        "name": "create_github_issue",
+        "description": "Create a new GitHub issue.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo":   {"type": "string"},
+                "title":  {"type": "string"},
+                "body":   {"type": "string"},
+                "labels": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["repo", "title", "body"],
+        },
+    },
+    {
+        "name": "check_failed_workflows",
+        "description": "Check all watched repos for failed GitHub Actions workflow runs.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "upload_to_onedrive",
+        "description": "Upload a file or report content to OneDrive.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "folder_path": {"type": "string", "description": "e.g. Reports/Weekly"},
+                "filename":    {"type": "string"},
+                "content":     {"type": "string"},
+            },
+            "required": ["folder_path", "filename", "content"],
+        },
+    },
+    {
+        "name": "list_onedrive",
+        "description": "List files and folders in a OneDrive folder. Use empty string for root.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"folder_path": {"type": "string", "description": "e.g. 'Reports' or '' for root"}},
+        },
+    },
+    {
+        "name": "download_from_onedrive",
+        "description": "Read a file's content from OneDrive. Returns up to 8000 chars.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"file_path": {"type": "string", "description": "e.g. 'Documents/spec.md'"}},
+            "required": ["file_path"],
+        },
+    },
+    {
+        "name": "search_onedrive",
+        "description": "Search OneDrive files by name or content keyword.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "move_onedrive_file",
+        "description": "Move a OneDrive file to a different folder, optionally renaming it.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "src_path":         {"type": "string"},
+                "dest_folder_path": {"type": "string"},
+                "new_name":         {"type": "string"},
+            },
+            "required": ["src_path", "dest_folder_path"],
+        },
+    },
+    {
+        "name": "get_onedrive_share_link",
+        "description": "Get a shareable (read-only, org-scoped) link for a OneDrive file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"item_path": {"type": "string"}},
+            "required": ["item_path"],
+        },
+    },
+    {
+        "name": "create_onedrive_folder",
+        "description": "Create a new folder in OneDrive.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "parent_path":  {"type": "string", "description": "'' for root, or 'Reports' etc."},
+                "folder_name":  {"type": "string"},
+            },
+            "required": ["parent_path", "folder_name"],
         },
     },
 ]
@@ -714,25 +880,114 @@ subject="Daily Work Update — {today} — Somasekhar Eruvuri"
     finally:
         pythoncom.CoUninitialize()
 
+def send_report(period: str, label: str):
+    """
+    Generic report generator for daily / weekly / monthly periods.
+    Compiles Jira issues, GitHub workflow status, action log, sends email
+    to Monojit + Sameer and uploads HTML to OneDrive Reports/{period}/.
+    """
+    log.info("Generating %s report...", period)
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Action log for the period
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT source, action, detail, ts FROM action_log ORDER BY ts DESC LIMIT 200"
+        ).fetchall()
+    actions = "\n".join(f"- [{r[3][11:16]}] {r[0]} {r[1]}: {r[2][:100]}" for r in rows[:50]) or "None."
+
+    try:
+        issues    = jcc.get_my_open_issues(20)
+        jira_text = "\n".join(f"- {i['key']}: {i['summary']} [{i['status']}]" for i in issues) or "None."
+    except Exception:
+        jira_text = "Jira unavailable."
+
+    try:
+        failures  = ghc.get_failed_workflows(WATCHED_REPOS)
+        gh_text   = "\n".join(f"- {f['repo']} / {f['name']} ({f['branch']}): FAILED" for f in failures) or "All passing."
+    except Exception:
+        gh_text = "GitHub unavailable."
+
+    prompt = f"""
+Generate a {period} work report ({label}) for Somasekhar Eruvuri.
+
+Jira open issues:
+{jira_text}
+
+GitHub workflow failures:
+{gh_text}
+
+Recent actions logged ({period}):
+{actions}
+
+Instructions:
+1. Write a professional HTML report with sections:
+   - Executive Summary (3 bullet points)
+   - Completed Work
+   - In Progress
+   - Blockers (mention DRG route pending if still relevant)
+   - GitHub CI Status
+   - Plan for next {period}
+2. Call upload_to_onedrive with folder_path="Reports/{period.capitalize()}", filename="{period}-report-{today}.html", content=<the HTML>
+3. Call send_new_email to send a plain-text summary version to:
+   to=["{DAILY_UPDATE_TO.split(',')[0].strip()}", "{(DAILY_UPDATE_TO.split(',')[1] if ',' in DAILY_UPDATE_TO else '').strip()}"]
+   subject="{period.capitalize()} Work Report — {label} — Somasekhar Eruvuri"
+"""
+    try:
+        pythoncom.CoInitialize()
+        global outlook_ns
+        outlook_ns = get_outlook()
+        run_agent(prompt.strip(), context_id=f"{period}-report")
+        log_action("scheduler", f"{period}_report_sent", today)
+    except Exception as e:
+        log.error("%s report failed: %s\n%s", period, e, traceback.format_exc())
+    finally:
+        pythoncom.CoUninitialize()
+
+
 def main():
     log.info("Claude Delegate Agent starting. poll_interval=%ds model=%s", POLL_INTERVAL, MODEL_ID)
-    daily_update_sent_date = ""
+    sent = {"daily": "", "weekly": "", "monthly": ""}
+
     while True:
         try:
             poll_once()
         except Exception as e:
             log.error("Top-level error: %s", e)
 
-        # Daily update — fire once per day at DAILY_UPDATE_HOUR (IST = UTC+5:30)
-        now_ist = datetime.now(timezone.utc).hour * 60 + datetime.now(timezone.utc).minute + 330
-        now_ist_hour = (now_ist // 60) % 24
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        if now_ist_hour == DAILY_UPDATE_HOUR and daily_update_sent_date != today:
-            daily_update_sent_date = today
+        now_utc      = datetime.now(timezone.utc)
+        # Convert to IST (UTC+5:30)
+        ist_minutes  = now_utc.hour * 60 + now_utc.minute + 330
+        ist_hour     = (ist_minutes // 60) % 24
+        today        = now_utc.strftime("%Y-%m-%d")
+        weekday      = now_utc.weekday()   # 0=Mon … 6=Sun
+        day_of_month = now_utc.day
+
+        # Daily — 6 PM IST every day
+        if ist_hour == DAILY_UPDATE_HOUR and sent["daily"] != today:
+            sent["daily"] = today
             try:
                 send_daily_update()
             except Exception as e:
-                log.error("Daily update top-level error: %s", e)
+                log.error("Daily update error: %s", e)
+
+        # Weekly — 5 PM IST every Friday
+        if ist_hour == 17 and weekday == 4 and sent["weekly"] != today:
+            sent["weekly"] = today
+            week_label = f"W{now_utc.isocalendar()[1]}-{now_utc.year}"
+            try:
+                send_report("weekly", week_label)
+            except Exception as e:
+                log.error("Weekly report error: %s", e)
+
+        # Monthly — 5 PM IST on the last working day (day 28+ and Friday or last day ≤31)
+        if ist_hour == 17 and day_of_month >= 28 and weekday == 4 and sent["monthly"] != today:
+            sent["monthly"] = today
+            month_label = now_utc.strftime("%B-%Y")
+            try:
+                send_report("monthly", month_label)
+            except Exception as e:
+                log.error("Monthly report error: %s", e)
 
         time.sleep(POLL_INTERVAL)
 
