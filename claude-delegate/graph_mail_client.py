@@ -15,7 +15,7 @@ TOKEN_CACHE = Path(os.environ.get("DB_PATH", r"C:\claude-delegate\memory.db")).p
 # Microsoft Office public client — no App Registration needed
 CLIENT_ID    = "d3590ed6-52b3-4102-aeff-aad2292ab01c"
 TENANT       = "organizations"
-SCOPES       = ["Mail.Read", "Mail.Send", "Mail.ReadWrite", "offline_access"]
+SCOPES       = ["Mail.Read", "Mail.Send", "Mail.ReadWrite"]
 AUTHORITY    = f"https://login.microsoftonline.com/{TENANT}"
 
 # ---------------------------------------------------------------------------
