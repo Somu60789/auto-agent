@@ -203,7 +203,7 @@ def get_unread_teams_messages() -> list[dict]:
         # unread indicator via the notification log
         # ponytail: this is best-effort; Teams COM access is limited without Graph
         appdata = os.environ.get("APPDATA", "")
-        teams_log = os.path.join(appdata, "Microsoft", "Teams", "logs.txt")
+        teams_log = os.path.join(appdata, r"Microsoft\Teams\logs.txt")
         if os.path.exists(teams_log):
             with open(teams_log, "r", encoding="utf-8", errors="ignore") as f:
                 lines = f.readlines()[-200:]
