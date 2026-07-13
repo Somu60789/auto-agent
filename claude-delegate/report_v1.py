@@ -197,27 +197,17 @@ def _build_html(period: str, label: str, today: str,
 
 
 # ---------------------------------------------------------------------------
-# Email via Outlook COM
+# Email via priority chain (Outlook COM → Graph API → SMTP)
 # ---------------------------------------------------------------------------
 
 def _send_email(to_list: list[str], subject: str, body_text: str):
     try:
-        import pythoncom, win32com.client
-        pythoncom.CoInitialize()
-        ns   = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
-        mail = ns.Application.CreateItem(0)
-        mail.To      = "; ".join(to_list)
-        mail.Subject = subject
-        mail.Body    = body_text
-        mail.Send()
-        log.info("Report email sent to %s", to_list)
+        sys.path.insert(0, str(Path(__file__).parent.parent / "auto-agent" / "claude-delegate"))
+        import graph_mail_client as gmc
+        result = gmc.send_email(to_list, subject, body_text)
+        log.info("Report email sent via %s to %s", result.get("transport"), to_list)
     except Exception as e:
-        log.error("Email send failed: %s", e)
-    finally:
-        try:
-            pythoncom.CoUninitialize()
-        except Exception:
-            pass
+        log.error("All email transports failed: %s", e)
 
 
 # ---------------------------------------------------------------------------
